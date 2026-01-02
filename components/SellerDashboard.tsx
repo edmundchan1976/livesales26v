@@ -69,7 +69,6 @@ const SellerDashboard: React.FC<Props> = ({
   onTestSync,
   onResetCache
 }) => {
-  // Always start with settings tab as requested
   const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'viz' | 'add' | 'settings'>('settings');
   const [selectedMnemonic, setSelectedMnemonic] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -95,7 +94,8 @@ const SellerDashboard: React.FC<Props> = ({
     const groups: Record<string, GroupedOrder> = {};
     
     orders.forEach(o => {
-      const key = (o.orderId || 'UNKNOWN').toUpperCase();
+      // Robust key generation for grouping multiple line items with the same Order ID
+      const key = (o.orderId || o.id || 'UNKNOWN').toUpperCase();
       if (!groups[key]) {
         groups[key] = {
           orderId: o.orderId,
@@ -181,14 +181,13 @@ const SellerDashboard: React.FC<Props> = ({
 
   const handleTestConnection = async () => {
     setIsTesting(true);
-    // Request: Clear cache and related memory every time the verify hub button is pressed
     onResetCache(); 
     try {
       await onTestSync();
       setHasVerifiedOnce(true);
       setActiveTab('inventory');
     } catch (e) {
-      alert("Cloud Verification failed. Please check the URL and ensure the Script is deployed properly.");
+      alert("Cloud Verification failed. Please ensure your Apps Script is deployed as a Web App for 'Anyone'.");
     } finally {
       setIsTesting(false);
     }
