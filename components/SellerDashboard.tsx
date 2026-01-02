@@ -25,7 +25,9 @@ import {
   ExclamationCircleIcon,
   CheckBadgeIcon,
   TagIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  QuestionMarkCircleIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
 interface Props {
@@ -97,8 +99,7 @@ const SellerDashboard: React.FC<Props> = ({
     const safeOrders = Array.isArray(orders) ? orders : [];
     
     safeOrders.forEach((o, idx) => {
-      // Grouping logic: Use OrderID if exists, fallback to buyer name + date, finally index
-      const baseKey = o.orderId || `${o.buyerName}-${o.timestamp.substring(0, 10)}` || `GRP-${idx}`;
+      const baseKey = o.orderId || `${o.buyerName}-${o.timestamp}` || `GRP-${idx}`;
       const key = String(baseKey).toUpperCase();
       
       if (!groups[key]) {
@@ -190,9 +191,9 @@ const SellerDashboard: React.FC<Props> = ({
     try {
       await onTestSync();
       setHasVerifiedOnce(true);
-      setActiveTab('orders'); // Jump to orders to verify sync immediately
+      setActiveTab('orders');
     } catch (e) {
-      alert("Hub Verification failed. Please check your Script URL.");
+      console.error(e);
     } finally {
       setIsTesting(false);
     }
@@ -224,6 +225,8 @@ const SellerDashboard: React.FC<Props> = ({
     const configParam = webhookUrl ? `?w=${encodeURIComponent(btoa(webhookUrl))}` : '';
     return `${fullBaseUrl}${configParam}#/order/${mnemonic}`;
   };
+
+  const isFailedFetch = syncDiagnostic?.includes('CONNECTION_BLOCKED') || syncDiagnostic?.includes('Failed to fetch');
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -277,7 +280,7 @@ const SellerDashboard: React.FC<Props> = ({
                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Selling Database</h3>
                    {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Stock tracked from Master Inventory Sheet</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Cloud-synced Inventory Sheet</p>
               </div>
               <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
                 <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Cloud Data
@@ -326,17 +329,19 @@ const SellerDashboard: React.FC<Props> = ({
 
         {activeTab === 'orders' && (
           <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
-            {/* Sync Status Header */}
+            {/* Connection Diagnostic Message */}
             {syncDiagnostic && (
-              <div className="bg-indigo-600/10 border border-indigo-200 p-4 rounded-2xl flex items-center justify-between">
+              <div className={`p-4 rounded-2xl flex items-center justify-between border ${isFailedFetch ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-indigo-50 border-indigo-200 text-indigo-900'}`}>
                 <div className="flex items-center gap-3">
-                  <InformationCircleIcon className="w-5 h-5 text-indigo-600" />
+                  {isFailedFetch ? <ExclamationTriangleIcon className="w-5 h-5 text-rose-600" /> : <InformationCircleIcon className="w-5 h-5 text-indigo-600" />}
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Hub Connection Status</p>
-                    <p className="text-[11px] text-indigo-900 font-bold">{syncDiagnostic}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest">{isFailedFetch ? 'Connection Blocked by Google' : 'Sync Status'}</p>
+                    <p className="text-[11px] font-bold">{syncDiagnostic}</p>
                   </div>
                 </div>
-                {isSyncing && <div className="flex items-center gap-2"><ArrowPathIcon className="w-4 h-4 text-indigo-600 animate-spin" /><span className="text-[10px] font-black text-indigo-600 uppercase">Pulling...</span></div>}
+                {isFailedFetch && (
+                  <button onClick={() => setActiveTab('settings')} className="text-[10px] font-black uppercase underline decoration-rose-400 underline-offset-4">Fix Connection</button>
+                )}
               </div>
             )}
 
@@ -346,11 +351,11 @@ const SellerDashboard: React.FC<Props> = ({
                   <div className={`p-4 rounded-2xl ${orderFilterMode === 'all' ? 'bg-white/10' : 'bg-slate-50 text-slate-300'}`}><UserGroupIcon className="w-8 h-8" /></div>
                </button>
                <button onClick={() => setOrderFilterMode('waitlisted')} className={`p-6 rounded-[2.5rem] border transition-all text-left flex items-center justify-between group ${orderFilterMode === 'waitlisted' ? 'bg-amber-500 border-amber-400 shadow-xl shadow-amber-100 text-white' : 'bg-white border-slate-200 text-slate-900 shadow-sm hover:border-amber-300'}`}>
-                  <div><p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'waitlisted' ? 'text-amber-100' : 'text-slate-400'}`}>Waitlist Active</p><p className="text-3xl font-black">{uniqueWaitlistOrderCount}</p></div>
+                  <div><p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'waitlisted' ? 'text-amber-100' : 'text-slate-400'}`}>Waitlist Demand</p><p className="text-3xl font-black">{uniqueWaitlistOrderCount}</p></div>
                   <div className={`p-4 rounded-2xl ${orderFilterMode === 'waitlisted' ? 'bg-white/10' : 'bg-slate-50 text-slate-300 group-hover:text-amber-500'}`}><ExclamationCircleIcon className="w-8 h-8" /></div>
                </button>
                <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
-                  <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Cloud Stock</p><p className="text-3xl font-black text-slate-900">{totalBalance}</p></div>
+                  <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Available Cloud Stock</p><p className="text-3xl font-black text-slate-900">{totalBalance}</p></div>
                   <div className="p-4 bg-emerald-50 rounded-2xl text-emerald-500"><CheckBadgeIcon className="w-8 h-8" /></div>
                </div>
             </div>
@@ -358,8 +363,8 @@ const SellerDashboard: React.FC<Props> = ({
             <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
                <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
                 <div>
-                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Live Order Feed</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Real-time sync from Google Sheet</p>
+                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Live Transactions</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Sourced from "Orders" sheet.</p>
                 </div>
                 <button onClick={handleManualSync} disabled={isSyncing} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100">
                   <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Force Re-Sync
@@ -380,7 +385,7 @@ const SellerDashboard: React.FC<Props> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={7} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Pulling Data...' : 'No orders found. Check "Orders" sheet on Google.'}</td></tr>
+                      <tr><td colSpan={7} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Fetching...' : 'No orders found.'}</td></tr>
                     ) : (
                       filteredOrders.map((group) => {
                         const isExpanded = expandedOrderIds.has(group.orderId);
@@ -407,20 +412,16 @@ const SellerDashboard: React.FC<Props> = ({
                                 <td colSpan={7} className="px-12 py-8 border-b border-indigo-100/30">
                                   <table className="w-full text-[11px]">
                                     <thead className="text-slate-400 uppercase font-bold border-b border-slate-100">
-                                      <tr><th className="text-left py-3">Item</th><th className="text-center py-3">Qty</th><th className="text-center py-3">Cloud Balance</th><th className="text-center py-3">Outcome</th></tr>
+                                      <tr><th className="text-left py-3">Item</th><th className="text-center py-3">Qty</th><th className="text-center py-3">Outcome</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100/50">
-                                      {group.lines.map((line, idx) => {
-                                        const balance = itemStockMap.get(line.mnemonic.toUpperCase()) ?? '??';
-                                        return (
-                                          <tr key={idx} className="text-slate-600">
-                                            <td className="py-4 font-black text-slate-800">{line.itemName} <span className="text-indigo-400 font-mono text-[9px] ml-1">#{line.mnemonic}</span></td>
-                                            <td className="py-4 text-center font-black">{line.quantity}</td>
-                                            <td className="py-4 text-center"><span className={`px-3 py-1 rounded-full text-[9px] border ${typeof balance === 'number' && balance <= 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100'}`}>{balance} available</span></td>
-                                            <td className="py-4 text-center"><span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${line.status === 'confirmed' ? 'text-emerald-500 border-emerald-100' : 'text-amber-500 border-amber-100'}`}>{line.status}</span></td>
-                                          </tr>
-                                        );
-                                      })}
+                                      {group.lines.map((line, idx) => (
+                                        <tr key={idx} className="text-slate-600">
+                                          <td className="py-4 font-black text-slate-800">{line.itemName} <span className="text-indigo-400 font-mono text-[9px] ml-1">#{line.mnemonic}</span></td>
+                                          <td className="py-4 text-center font-black">{line.quantity}</td>
+                                          <td className="py-4 text-center"><span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${line.status === 'confirmed' ? 'text-emerald-500 border-emerald-100' : 'text-amber-500 border-amber-100'}`}>{line.status}</span></td>
+                                        </tr>
+                                      ))}
                                     </tbody>
                                   </table>
                                 </td>
@@ -433,31 +434,6 @@ const SellerDashboard: React.FC<Props> = ({
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
-               <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30">
-                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Itemized Stock Balance (Google Cloud Source)</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Calculated balance based on cloud transactions.</p>
-               </div>
-               <div className="p-6">
-                  {items.length === 0 ? <div className="text-center py-8 text-slate-300 uppercase text-[10px]">No Inventory.</div> : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                      {items.map(item => (
-                        <div key={item.id} className="bg-slate-50 border border-slate-100 p-5 rounded-3xl flex flex-col justify-between hover:border-emerald-200 transition-all group">
-                           <div className="mb-4">
-                              <p className="text-[10px] font-mono text-indigo-400 font-black uppercase mb-1">#{item.mnemonic}</p>
-                              <h4 className="font-black text-slate-800 text-sm leading-tight">{item.name}</h4>
-                           </div>
-                           <div className="flex justify-between items-end">
-                              <div><span className="text-[8px] font-black text-slate-400 uppercase">Balance</span><p className={`text-2xl font-black ${item.quantity <= 0 ? 'text-rose-500' : 'text-slate-900'}`}>{item.quantity}</p></div>
-                              <div className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase ${item.quantity > 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.quantity > 5 ? 'Healthy' : 'Low Stock'}</div>
-                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-               </div>
             </div>
           </div>
         )}
@@ -487,23 +463,42 @@ const SellerDashboard: React.FC<Props> = ({
         {activeTab === 'settings' && (
           <section className="bg-slate-900 p-12 rounded-[3rem] text-white shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6 mt-4">
-              <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${!webhookUrl ? 'bg-amber-500 text-white' : 'bg-white/10 text-indigo-400'}`}>{!webhookUrl ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {webhookUrl ? 'Hub Link Active' : 'Initialize Cloud Hub'}</h3>
+              <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${!webhookUrl ? 'bg-amber-500 text-white' : 'bg-white/10 text-indigo-400'}`}>{!webhookUrl ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {webhookUrl ? 'Cloud Connection Active' : 'Initialize Cloud Link'}</h3>
             </div>
+            
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-12">
               <div className="space-y-10">
                 <div className={`${!hasVerifiedOnce ? 'ring-2 ring-indigo-500 ring-offset-4 ring-offset-slate-900 rounded-3xl p-2' : ''}`}>
-                  <label className="text-[10px] text-slate-400 block mb-4 uppercase font-black tracking-[0.2em]">Google Sheet Apps Script URL</label>
+                  <label className="text-[10px] text-slate-400 block mb-4 uppercase font-black tracking-[0.2em]">Google Sheet Script URL</label>
                   <div className="flex gap-3">
                     <input type="text" placeholder="https://script.google.com/macros/s/.../exec" value={webhookUrl} onChange={(e) => { onWebhookChange(e.target.value); setHasVerifiedOnce(false); }} className="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 text-sm text-indigo-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium backdrop-blur-sm" />
-                    <button onClick={handleTestConnection} disabled={isTesting || !webhookUrl} className={`p-5 rounded-2xl transition-all min-w-[140px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest ${isTesting ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/40'}`}>{isTesting ? <WifiIcon className="w-5 h-5 animate-ping" /> : 'Verify Hub'}</button>
+                    <button onClick={handleTestConnection} disabled={isTesting || !webhookUrl} className={`p-5 rounded-2xl transition-all min-w-[140px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest ${isTesting ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/40'}`}>{isTesting ? <WifiIcon className="w-5 h-5 animate-ping" /> : 'Verify & Sync'}</button>
                   </div>
+                  
                   {syncDiagnostic && (
-                    <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700/50 rounded-xl">
-                       <p className="text-[9px] font-black uppercase text-indigo-400 tracking-widest mb-1">Diagnostic Report</p>
-                       <p className="text-[10px] text-slate-300 font-bold">{syncDiagnostic}</p>
+                    <div className={`mt-6 p-5 rounded-2xl border ${isFailedFetch ? 'bg-rose-500/10 border-rose-500/30' : 'bg-slate-800/50 border-slate-700/50'}`}>
+                       <div className="flex items-center gap-2 mb-2">
+                          <InformationCircleIcon className={`w-4 h-4 ${isFailedFetch ? 'text-rose-400' : 'text-indigo-400'}`} />
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Hub Report</p>
+                       </div>
+                       <p className={`text-[11px] font-bold ${isFailedFetch ? 'text-rose-200' : 'text-slate-200'}`}>{syncDiagnostic}</p>
+                       
+                       {isFailedFetch && (
+                         <div className="mt-4 pt-4 border-t border-rose-500/20 space-y-3">
+                            <p className="text-[9px] font-black uppercase text-rose-400 tracking-widest flex items-center gap-2">
+                               <QuestionMarkCircleIcon className="w-3.5 h-3.5" /> Troubleshooting "Failed to Fetch"
+                            </p>
+                            <ul className="text-[10px] text-rose-100/60 font-bold space-y-1.5 list-disc pl-4">
+                               <li>Ensure you chose <strong>"Anyone"</strong> under "Who has access" in Google Apps Script deployment.</li>
+                               <li>You must click <strong>"Authorize Access"</strong> in the Google Script editor at least once.</li>
+                               <li>Ensure the URL ends in <strong>/exec</strong> and not /edit.</li>
+                               <li>Check if your sheets are named exactly <strong>"Inventory"</strong> and <strong>"Orders"</strong>.</li>
+                            </ul>
+                         </div>
+                       )}
                     </div>
                   )}
-                  <p className="text-[9px] text-slate-500 mt-4 uppercase font-bold tracking-widest leading-relaxed">Verifying clears browser memory to ensure cloud data integrity.</p>
+                  <p className="text-[9px] text-slate-500 mt-4 uppercase font-bold tracking-widest leading-relaxed">Verifying refreshes local cache with cloud data.</p>
                 </div>
               </div>
               <div className="space-y-12">
