@@ -26,16 +26,6 @@ const App: React.FC = () => {
     const savedWaitlist = localStorage.getItem(STORAGE_KEY_WAITLIST);
 
     if (savedItems) setItems(JSON.parse(savedItems));
-    else {
-      const initialItems: Item[] = [
-        { id: '1', category: 'Seafood', name: 'Fresh Lobster', price: 45.0, quantity: 10, mnemonic: 'LOBSTER1', order: 0, allowUpsell: true },
-        { id: '2', category: 'Meat', name: 'Wagyu Beef', price: 120.0, quantity: 5, mnemonic: 'BEEF10', order: 1, allowUpsell: true },
-        { id: '3', category: 'Fruit', name: 'King Durian', price: 35.0, quantity: 15, mnemonic: 'DURIAN5', order: 2, allowUpsell: false },
-      ];
-      setItems(initialItems);
-      localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(initialItems));
-    }
-
     if (savedOrders) setOrders(JSON.parse(savedOrders));
     if (savedWaitlist) setWaitlistConfig(JSON.parse(savedWaitlist));
   }, []);
@@ -73,10 +63,11 @@ const App: React.FC = () => {
       if (rawItems.length > 0) {
         const mappedItems: Item[] = rawItems.map((it: any, idx: number) => ({
           id: it.id || it.mnemonic || `sync-${idx}`,
-          category: it.category || 'General',
+          category: it.category || it.Category || 'General',
           name: it.name || it.itemName || it.ItemName || 'Unknown Item',
           price: parseFloat(it.price || it.Price || 0),
-          quantity: parseInt(it.quantity || it.AvailableBalance || 0),
+          // Source of truth for balance from Google Sheet "Inventory" sheet (column 'Available Balance' or 'quantity')
+          quantity: parseInt(it.quantity !== undefined ? it.quantity : (it.AvailableBalance || 0)),
           mnemonic: (String(it.mnemonic || it.Mnemonic || '')).toUpperCase(),
           order: idx,
           allowUpsell: isTruthy(it.allowUpsell || it.AllowUpsell)
@@ -159,8 +150,46 @@ const App: React.FC = () => {
     setOrders(newOrders);
     localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(newItems));
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(newOrders));
-    // Implementation for pushToGoogleSheets removed for brevity but assumed present
-  }, []);
+    
+    // Auto-push to sheets if webhook exists
+    if (webhookUrl) {
+      const push = async () => {
+        try {
+          const payload = {
+            action: 'sync',
+            Inventory: newItems.map(i => ({
+              Category: i.category,
+              ItemName: i.name,
+              Price: i.price,
+              InitialQuantity: i.quantity, // Note: The script calculates balance, so we push baseline or intended stock
+              Mnemonic: i.mnemonic,
+              AllowUpsell: !!i.allowUpsell
+            })),
+            Orders: newOrders.map(o => ({
+              OrderID: o.orderId,
+              Timestamp: o.timestamp,
+              Buyer: o.buyerName,
+              Email: o.buyerEmail,
+              ItemName: o.itemName,
+              Mnemonic: o.mnemonic,
+              Quantity: o.quantity,
+              Address: o.address,
+              AppStatus: o.status
+            }))
+          };
+          await fetch(webhookUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(payload),
+          });
+        } catch (e) {
+          console.error("Failed to push sync", e);
+        }
+      };
+      push();
+    }
+  }, [webhookUrl]);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -173,7 +202,7 @@ const App: React.FC = () => {
           <div className="flex gap-4 items-center">
             {lastSync && (
               <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
-                <span className="text-[9px] font-black uppercase tracking-widest">SGT SYNC: {lastSync}</span>
+                <span className="text-[9px] font-black uppercase tracking-widest">SGT CLOUD SYNC: {lastSync}</span>
               </div>
             )}
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
