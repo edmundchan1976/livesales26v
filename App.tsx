@@ -20,6 +20,16 @@ const App: React.FC = () => {
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const hasAttemptedInitialSync = useRef(false);
 
+  // Function to wipe browser memory for this app
+  const clearMemoryAndCache = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY_ITEMS);
+    localStorage.removeItem(STORAGE_KEY_ORDERS);
+    setItems([]);
+    setOrders([]);
+    setLastSync(null);
+    console.log("Memory and cache cleared.");
+  }, []);
+
   useEffect(() => {
     const savedItems = localStorage.getItem(STORAGE_KEY_ITEMS);
     const savedOrders = localStorage.getItem(STORAGE_KEY_ORDERS);
@@ -56,18 +66,19 @@ const App: React.FC = () => {
       if (Array.isArray(data)) {
         rawItems = data;
       } else if (data && typeof data === 'object') {
+        // Source of Truth: Data from the "Inventory" calculated sheet in Apps Script
         rawItems = data.Inventory || data.items || [];
         rawOrders = data.Orders || data.orders || [];
       }
 
       if (rawItems.length > 0) {
         const mappedItems: Item[] = rawItems.map((it: any, idx: number) => ({
-          id: it.id || it.mnemonic || `sync-${idx}`,
+          id: it.id || it.mnemonic || it.Mnemonic || `sync-${idx}`,
           category: it.category || it.Category || 'General',
           name: it.name || it.itemName || it.ItemName || 'Unknown Item',
           price: parseFloat(it.price || it.Price || 0),
-          // Source of truth for balance from Google Sheet "Inventory" sheet (column 'Available Balance' or 'quantity')
-          quantity: parseInt(it.quantity !== undefined ? it.quantity : (it.AvailableBalance || 0)),
+          // Mapping "quantity" to the calculated balance from Google Sheet
+          quantity: parseInt(it.quantity !== undefined ? it.quantity : (it.AvailableBalance !== undefined ? it.AvailableBalance : (it.Balance || 0))),
           mnemonic: (String(it.mnemonic || it.Mnemonic || '')).toUpperCase(),
           order: idx,
           allowUpsell: isTruthy(it.allowUpsell || it.AllowUpsell)
@@ -77,7 +88,7 @@ const App: React.FC = () => {
       }
 
       const mappedOrders: Order[] = (rawOrders || []).map((o: any) => ({
-        id: o.id || o.orderId || Math.random().toString(),
+        id: o.id || o.orderId || o.OrderID || Math.random().toString(),
         orderId: o.orderId || o.OrderID || 'N/A',
         itemId: o.itemId || '',
         itemName: o.itemName || o.ItemName || 'Unknown Item',
@@ -151,7 +162,6 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(newItems));
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(newOrders));
     
-    // Auto-push to sheets if webhook exists
     if (webhookUrl) {
       const push = async () => {
         try {
@@ -161,7 +171,7 @@ const App: React.FC = () => {
               Category: i.category,
               ItemName: i.name,
               Price: i.price,
-              InitialQuantity: i.quantity, // Note: The script calculates balance, so we push baseline or intended stock
+              InitialQuantity: i.quantity,
               Mnemonic: i.mnemonic,
               AllowUpsell: !!i.allowUpsell
             })),
@@ -192,7 +202,7 @@ const App: React.FC = () => {
   }, [webhookUrl]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {view === 'seller' && (
         <nav className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-50 shadow-sm">
           <div className="flex items-center gap-2">
@@ -223,6 +233,7 @@ const App: React.FC = () => {
             setWaitlistConfig={(c) => { setWaitlistConfig(c); localStorage.setItem(STORAGE_KEY_WAITLIST, JSON.stringify(c)); }}
             onManualSync={async () => { await fetchInventoryFromSheets(); }}
             onTestSync={async () => { await fetchInventoryFromSheets(); }}
+            onResetCache={clearMemoryAndCache}
           />
         ) : (
           <BuyerPortal 
