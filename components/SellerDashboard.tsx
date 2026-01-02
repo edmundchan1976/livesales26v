@@ -24,8 +24,8 @@ import {
   ShieldCheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  CurrencyDollarIcon,
-  ExclamationCircleIcon
+  ExclamationCircleIcon,
+  CheckBadgeIcon
 } from '@heroicons/react/24/outline';
 
 interface Props {
@@ -75,12 +75,12 @@ const SellerDashboard: React.FC<Props> = ({
   const [hasVerifiedOnce, setHasVerifiedOnce] = useState(!!webhookUrl);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
 
-  // Auto-refresh data when Orders or Inventory tab is clicked
-  useEffect(() => {
-    if ((activeTab === 'orders' || activeTab === 'inventory') && hasVerifiedOnce) {
+  const handleTabClick = async (tab: any) => {
+    setActiveTab(tab);
+    if ((tab === 'orders' || tab === 'inventory') && webhookUrl) {
       handleManualSync();
     }
-  }, [activeTab]);
+  };
 
   useEffect(() => {
     if (!webhookUrl) {
@@ -89,17 +89,18 @@ const SellerDashboard: React.FC<Props> = ({
     }
   }, [webhookUrl]);
 
-  const isLocked = !webhookUrl || !hasVerifiedOnce;
+  const isLocked = !webhookUrl;
 
-  const itemPriceMap = useMemo(() => new Map(items.map(i => [i.id, i.price])), [items]);
-  const itemStockMap = useMemo(() => new Map(items.map(i => [i.mnemonic, i.quantity])), [items]);
+  const itemPriceMap = useMemo(() => new Map(items.map(i => [i.mnemonic.toUpperCase(), i.price])), [items]);
+  const itemStockMap = useMemo(() => new Map(items.map(i => [i.mnemonic.toUpperCase(), i.quantity])), [items]);
 
   const groupedOrders = useMemo(() => {
     const groups: Record<string, GroupedOrder> = {};
     
     orders.forEach(o => {
-      if (!groups[o.orderId]) {
-        groups[o.orderId] = {
+      const key = (o.orderId || 'UNKNOWN').toUpperCase();
+      if (!groups[key]) {
+        groups[key] = {
           orderId: o.orderId,
           timestamp: o.timestamp,
           buyerName: o.buyerName,
@@ -114,10 +115,10 @@ const SellerDashboard: React.FC<Props> = ({
         };
       }
       
-      const g = groups[o.orderId];
+      const g = groups[key];
       g.lines.push(o);
       g.totalQty += o.quantity;
-      const price = itemPriceMap.get(o.itemId) || 0;
+      const price = itemPriceMap.get(o.mnemonic.toUpperCase()) || 0;
       g.totalCost += price * o.quantity;
       if (o.status === 'waitlisted') g.hasWaitlistedLine = true;
     });
@@ -145,7 +146,7 @@ const SellerDashboard: React.FC<Props> = ({
   const formatSGT = (dateStr: string) => {
     try {
       const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return 'Invalid Date';
+      if (isNaN(date.getTime())) return dateStr;
       return new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Singapore',
         hour: '2-digit',
@@ -154,13 +155,14 @@ const SellerDashboard: React.FC<Props> = ({
         hour12: false
       }).format(date);
     } catch (e) {
-      return 'N/A';
+      return dateStr;
     }
   };
 
+  const totalBalance = items.reduce((acc, i) => acc + i.quantity, 0);
   const revenuePotential = items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
   const uniqueOrderCount = groupedOrders.length;
-  const uniqueWaitlistOrderCount = groupedOrders.filter(g => g.overallStatus === 'waitlisted' || g.overallStatus === 'mixed').length;
+  const uniqueWaitlistOrderCount = groupedOrders.filter(g => g.hasWaitlistedLine).length;
 
   const handleAddItem = (data: Partial<Item>) => {
     const newItem: Item = {
@@ -188,6 +190,7 @@ const SellerDashboard: React.FC<Props> = ({
   };
 
   const handleManualSync = async () => {
+    if (!webhookUrl) return;
     setIsSyncing(true);
     try {
       await onManualSync();
@@ -267,7 +270,7 @@ const SellerDashboard: React.FC<Props> = ({
           { label: 'Total Orders', value: uniqueOrderCount, color: 'bg-indigo-500', icon: UserGroupIcon },
           { label: 'Waitlisted', value: uniqueWaitlistOrderCount, color: 'bg-amber-500', icon: ClockIcon },
           { label: 'Line Items', value: orders.length, color: 'bg-emerald-500', icon: DocumentDuplicateIcon },
-          { label: 'Total Qty', value: orders.reduce((a, b) => a + b.quantity, 0), color: 'bg-rose-500', icon: PlusCircleIcon },
+          { label: 'Total Stock', value: totalBalance, color: 'bg-rose-500', icon: PlusCircleIcon },
           { label: 'Potential', value: `$${revenuePotential.toFixed(0)}`, color: 'bg-purple-500', icon: ChartBarIcon },
         ].map((m, idx) => (
           <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md group">
@@ -290,7 +293,7 @@ const SellerDashboard: React.FC<Props> = ({
           { id: 'orders', label: 'Live Orders', icon: ArrowPathIcon, locked: isLocked },
           { id: 'viz', label: 'Analytics', icon: ChartBarIcon, locked: isLocked },
         ].map(tab => (
-          <button key={tab.id} disabled={tab.locked} onClick={() => setActiveTab(tab.id as any)}
+          <button key={tab.id} disabled={tab.locked} onClick={() => handleTabClick(tab.id as any)}
             className={`px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all flex items-center gap-2 group relative overflow-hidden ${
               activeTab === tab.id ? 'bg-white text-indigo-600 shadow-sm' : tab.locked ? 'text-slate-400 opacity-60 cursor-not-allowed' : 'text-slate-500 hover:text-slate-800'
             }`}>
@@ -309,10 +312,10 @@ const SellerDashboard: React.FC<Props> = ({
                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Selling Database</h3>
                    {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Live items tracked from Google Sheet</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Stock tracked from Google Sheet</p>
               </div>
               <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100 active:scale-95'}`}>
-                <ArrowUpTrayIcon className={`w-4 h-4 ${isSyncing ? 'animate-bounce' : ''}`} /> {isSyncing ? 'Refreshing...' : 'Manual Refresh'}
+                <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> {isSyncing ? 'Refreshing...' : 'Refresh Sheet Data'}
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -351,133 +354,158 @@ const SellerDashboard: React.FC<Props> = ({
         )}
 
         {activeTab === 'orders' && (
-          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-300">
-             <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Live Transactions</h3>
-                  {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
-                </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Read directly from Sheet. Click row to see Stock Balance.</p>
-              </div>
-              <div className="flex gap-4">
-                <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-400 tracking-tighter"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> Unique Sessions: {uniqueOrderCount}</div>
-              </div>
+          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-300">
+            {/* Stock Health Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock Balance</p>
+                    <p className="text-2xl font-black text-slate-900">{totalBalance} Units</p>
+                  </div>
+                  <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-500"><CheckBadgeIcon className="w-6 h-6" /></div>
+               </div>
+               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Waitlist Triggered</p>
+                    <p className={`text-2xl font-black ${uniqueWaitlistOrderCount > 0 ? 'text-amber-500' : 'text-slate-900'}`}>{uniqueWaitlistOrderCount} Orders</p>
+                  </div>
+                  <div className={`p-3 rounded-2xl ${uniqueWaitlistOrderCount > 0 ? 'bg-amber-50 text-amber-500 animate-pulse' : 'bg-slate-50 text-slate-300'}`}><ClockIcon className="w-6 h-6" /></div>
+               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left border-collapse">
-                <thead className="text-[10px] uppercase bg-slate-50/50 text-slate-400 font-black tracking-widest border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4 w-10"></th>
-                    <th className="px-6 py-4">Order ID</th>
-                    <th className="px-6 py-4">Time (SGT)</th>
-                    <th className="px-6 py-4">Buyer</th>
-                    <th className="px-6 py-4 text-center">Items</th>
-                    <th className="px-6 py-4 text-center">Total Qty</th>
-                    <th className="px-6 py-4 text-right">Total Cost</th>
-                    <th className="px-6 py-4 text-center">Stock Check</th>
-                    <th className="px-6 py-4 text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {groupedOrders.length === 0 ? (
-                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
-                      {isSyncing ? 'Refreshing from Cloud...' : 'No orders in current batch.'}
-                    </td></tr>
-                  ) : (
-                    groupedOrders.map((group) => {
-                      const isExpanded = expandedOrderIds.has(group.orderId);
-                      return (
-                        <React.Fragment key={group.orderId}>
-                          <tr className={`hover:bg-slate-50/50 transition-colors cursor-pointer ${isExpanded ? 'bg-indigo-50/30' : ''}`} onClick={() => toggleOrderExpansion(group.orderId)}>
-                            <td className="px-6 py-6">
-                              {isExpanded ? <ChevronDownIcon className="w-4 h-4 text-indigo-500" /> : <ChevronRightIcon className="w-4 h-4 text-slate-300" />}
-                            </td>
-                            <td className="px-6 py-6 font-mono font-black text-[11px] text-indigo-600">{group.orderId}</td>
-                            <td className="px-6 py-6 text-slate-400 font-bold text-xs">{formatSGT(group.timestamp)}</td>
-                            <td className="px-6 py-6"><div className="font-black text-slate-900 text-xs">{group.buyerName}</div></td>
-                            <td className="px-6 py-6 text-center font-bold text-slate-700">{group.distinctItems}</td>
-                            <td className="px-6 py-6 text-center font-black text-slate-900">{group.totalQty}</td>
-                            <td className="px-6 py-6 text-right font-black text-emerald-600 tracking-tight">${group.totalCost.toFixed(2)}</td>
-                            <td className="px-6 py-6 text-center">
-                               {group.hasWaitlistedLine ? (
-                                 <div className="flex justify-center items-center gap-1 text-amber-500 animate-pulse">
-                                   <ExclamationCircleIcon className="w-4 h-4" />
-                                   <span className="text-[8px] font-black uppercase">Waitlist Triggered</span>
-                                 </div>
-                               ) : (
-                                 <div className="flex justify-center items-center gap-1 text-emerald-500">
-                                   <ShieldCheckIcon className="w-4 h-4" />
-                                   <span className="text-[8px] font-black uppercase">Stock Clear</span>
-                                 </div>
-                               )}
-                            </td>
-                            <td className="px-6 py-6 text-center">
-                              <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase border ${
-                                group.overallStatus === 'confirmed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                group.overallStatus === 'mixed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                                'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}>
-                                {group.overallStatus}
-                              </span>
-                            </td>
-                          </tr>
-                          {isExpanded && (
-                            <tr className="bg-slate-50/50">
-                              <td colSpan={9} className="px-12 py-6 border-b border-indigo-100/50">
-                                <div className="space-y-4">
-                                  <div className="flex gap-12 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-200 pb-2">
-                                    <div className="flex items-center gap-2"><UserGroupIcon className="w-3.5 h-3.5" /> {group.buyerEmail}</div>
-                                    <div className="flex items-center gap-2"><ArrowPathIcon className="w-3.5 h-3.5" /> {group.address}</div>
-                                  </div>
-                                  <table className="w-full text-[11px]">
-                                    <thead className="text-slate-400 uppercase font-bold border-b border-slate-100">
-                                      <tr>
-                                        <th className="text-left py-2">Mnemonic</th>
-                                        <th className="text-left py-2">Item Name</th>
-                                        <th className="text-center py-2">Order Qty</th>
-                                        <th className="text-center py-2">Sheet Balance</th>
-                                        <th className="text-right py-2">Unit Price</th>
-                                        <th className="text-right py-2">Subtotal</th>
-                                        <th className="text-center py-2">Line Status</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100/50">
-                                      {group.lines.map((line, idx) => {
-                                        const price = itemPriceMap.get(line.itemId) || 0;
-                                        const balance = itemStockMap.get(line.mnemonic) ?? '??';
-                                        return (
-                                          <tr key={idx} className="text-slate-600">
-                                            <td className="py-3 font-mono font-bold text-indigo-500">{line.mnemonic}</td>
-                                            <td className="py-3 font-medium">{line.itemName}</td>
-                                            <td className="py-3 text-center font-black">{line.quantity}</td>
-                                            <td className="py-3 text-center">
-                                               <span className={`px-2 py-0.5 rounded font-black ${typeof balance === 'number' && balance <= 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
-                                                 {balance} units
-                                               </span>
-                                            </td>
-                                            <td className="py-3 text-right text-slate-400">${price.toFixed(2)}</td>
-                                            <td className="py-3 text-right font-bold text-slate-800">${(price * line.quantity).toFixed(2)}</td>
-                                            <td className="py-3 text-center">
-                                              <span className={`text-[8px] font-black uppercase ${line.status === 'confirmed' ? 'text-emerald-500' : 'text-amber-500'}`}>
-                                                {line.status}
-                                              </span>
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
+
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+               <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Live Transactions</h3>
+                    {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Fetching directly from Sheet "Orders". Click row to expand.</p>
+                </div>
+                <button onClick={handleManualSync} disabled={isSyncing} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100 active:scale-95 transition-all">
+                  <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Feed
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left border-collapse">
+                  <thead className="text-[10px] uppercase bg-slate-50/50 text-slate-400 font-black tracking-widest border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-4 w-10"></th>
+                      <th className="px-6 py-4">Order ID</th>
+                      <th className="px-6 py-4">Time (SGT)</th>
+                      <th className="px-6 py-4">Buyer</th>
+                      <th className="px-6 py-4 text-center">Items</th>
+                      <th className="px-6 py-4 text-center">Total Qty</th>
+                      <th className="px-6 py-4 text-right">Total Cost</th>
+                      <th className="px-6 py-4 text-center">Waitlist Check</th>
+                      <th className="px-6 py-4 text-center">Overall Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {groupedOrders.length === 0 ? (
+                      <tr><td colSpan={9} className="px-6 py-24 text-center">
+                        <div className="flex flex-col items-center gap-4">
+                           <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200"><UserGroupIcon className="w-8 h-8" /></div>
+                           <p className="text-slate-400 font-black uppercase text-[10px] tracking-[0.2em]">{isSyncing ? 'Syncing Cloud Data...' : 'No orders found in current batch'}</p>
+                           {!isSyncing && <button onClick={handleManualSync} className="text-indigo-600 text-[10px] font-black uppercase underline">Check Sheet Again</button>}
+                        </div>
+                      </td></tr>
+                    ) : (
+                      groupedOrders.map((group) => {
+                        const isExpanded = expandedOrderIds.has(group.orderId);
+                        return (
+                          <React.Fragment key={group.orderId}>
+                            <tr className={`hover:bg-slate-50/50 transition-colors cursor-pointer ${isExpanded ? 'bg-indigo-50/30' : ''}`} onClick={() => toggleOrderExpansion(group.orderId)}>
+                              <td className="px-6 py-6">
+                                {isExpanded ? <ChevronDownIcon className="w-4 h-4 text-indigo-500" /> : <ChevronRightIcon className="w-4 h-4 text-slate-300" />}
+                              </td>
+                              <td className="px-6 py-6 font-mono font-black text-[11px] text-indigo-600">{group.orderId}</td>
+                              <td className="px-6 py-6 text-slate-400 font-bold text-xs">{formatSGT(group.timestamp)}</td>
+                              <td className="px-6 py-6 font-black text-slate-900 text-xs">{group.buyerName}</td>
+                              <td className="px-6 py-6 text-center font-bold text-slate-700">{group.distinctItems}</td>
+                              <td className="px-6 py-6 text-center font-black text-slate-900">{group.totalQty}</td>
+                              <td className="px-6 py-6 text-right font-black text-emerald-600 tracking-tight">${group.totalCost.toFixed(2)}</td>
+                              <td className="px-6 py-6 text-center">
+                                 {group.hasWaitlistedLine ? (
+                                   <div className="flex justify-center items-center gap-1.5 text-amber-500 animate-pulse">
+                                     <ExclamationCircleIcon className="w-4 h-4" />
+                                     <span className="text-[8px] font-black uppercase">Waitlist Active</span>
+                                   </div>
+                                 ) : (
+                                   <div className="flex justify-center items-center gap-1.5 text-emerald-500">
+                                     <ShieldCheckIcon className="w-4 h-4" />
+                                     <span className="text-[8px] font-black uppercase">Confirmed</span>
+                                   </div>
+                                 )}
+                              </td>
+                              <td className="px-6 py-6 text-center">
+                                <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border shadow-sm ${
+                                  group.overallStatus === 'confirmed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                  group.overallStatus === 'mixed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                                  'bg-amber-50 text-amber-700 border-amber-200'
+                                }`}>
+                                  {group.overallStatus}
+                                </span>
                               </td>
                             </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                            {isExpanded && (
+                              <tr className="bg-indigo-50/10">
+                                <td colSpan={9} className="px-12 py-8 border-b border-indigo-100/50">
+                                  <div className="space-y-6">
+                                    <div className="flex flex-wrap gap-8 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-200 pb-4">
+                                      <div className="flex items-center gap-2 text-slate-600"><UserGroupIcon className="w-3.5 h-3.5" /> Email: {group.buyerEmail}</div>
+                                      <div className="flex items-center gap-2 text-slate-600"><PlusCircleIcon className="w-3.5 h-3.5" /> Address: {group.address}</div>
+                                      <div className="flex items-center gap-2 text-indigo-500 ml-auto"><ShieldCheckIcon className="w-3.5 h-3.5" /> Session Verified via Sheet Orders</div>
+                                    </div>
+                                    <table className="w-full text-[11px] border-collapse">
+                                      <thead className="text-slate-400 uppercase font-bold border-b border-slate-100">
+                                        <tr>
+                                          <th className="text-left py-3">Mnemonic</th>
+                                          <th className="text-left py-3">Item Name</th>
+                                          <th className="text-center py-3">Order Qty</th>
+                                          <th className="text-center py-3">Current Sheet Balance</th>
+                                          <th className="text-right py-3">Unit Price</th>
+                                          <th className="text-right py-3">Subtotal</th>
+                                          <th className="text-center py-3">Line Status</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100/50">
+                                        {group.lines.map((line, idx) => {
+                                          const price = itemPriceMap.get(line.mnemonic.toUpperCase()) || 0;
+                                          const balance = itemStockMap.get(line.mnemonic.toUpperCase()) ?? '??';
+                                          return (
+                                            <tr key={idx} className="text-slate-600 hover:bg-white/40 transition-colors">
+                                              <td className="py-4 font-mono font-black text-indigo-500 tracking-wider">{line.mnemonic}</td>
+                                              <td className="py-4 font-black text-slate-800">{line.itemName}</td>
+                                              <td className="py-4 text-center font-black text-lg">{line.quantity}</td>
+                                              <td className="py-4 text-center">
+                                                 <span className={`px-3 py-1 rounded-full font-black text-[9px] uppercase border ${typeof balance === 'number' && balance <= 0 ? 'bg-rose-50 text-rose-600 border-rose-100 animate-pulse' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                                   {balance} units remaining
+                                                 </span>
+                                              </td>
+                                              <td className="py-4 text-right text-slate-400 font-bold">${price.toFixed(2)}</td>
+                                              <td className="py-4 text-right font-black text-slate-900 text-sm">${(price * line.quantity).toFixed(2)}</td>
+                                              <td className="py-4 text-center">
+                                                <span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${line.status === 'confirmed' ? 'text-emerald-500 border-emerald-100 bg-emerald-50/50' : 'text-amber-500 border-amber-100 bg-amber-50/50'}`}>
+                                                  {line.status}
+                                                </span>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -502,22 +530,22 @@ const SellerDashboard: React.FC<Props> = ({
 
         {activeTab === 'settings' && (
           <section className="bg-slate-900 p-12 rounded-[3rem] text-white shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-            {isLocked && <div className="absolute top-0 left-0 w-full bg-indigo-600/20 py-2 text-center text-[10px] font-black uppercase tracking-[0.2em] border-b border-indigo-500/30 animate-pulse">Action Required: Configure Webhook to Unlock Dashboard</div>}
+            {(!webhookUrl || !hasVerifiedOnce) && <div className="absolute top-0 left-0 w-full bg-indigo-600/20 py-2 text-center text-[10px] font-black uppercase tracking-[0.2em] border-b border-indigo-500/30 animate-pulse">Configuration Required: Sync your Google Sheet Webhook</div>}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6 mt-4">
-              <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${isLocked ? 'bg-amber-500 text-white animate-bounce' : 'bg-white/10 text-indigo-400'}`}>{isLocked ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {isLocked ? 'Initial Connection Setup' : 'System Configuration'}</h3>
+              <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${!webhookUrl ? 'bg-amber-500 text-white animate-bounce' : 'bg-white/10 text-indigo-400'}`}>{!webhookUrl ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {webhookUrl ? 'System Configuration' : 'Cloud Setup Required'}</h3>
               {hasVerifiedOnce && <div className="bg-emerald-500/10 text-emerald-400 px-5 py-2 rounded-full text-[10px] font-black border border-emerald-500/30 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div> System Connected</div>}
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-12">
               <div className="space-y-10">
-                <div className={`${isLocked ? 'ring-2 ring-indigo-500 ring-offset-4 ring-offset-slate-900 rounded-3xl p-2' : ''}`}>
+                <div className={`${!hasVerifiedOnce ? 'ring-2 ring-indigo-500 ring-offset-4 ring-offset-slate-900 rounded-3xl p-2' : ''}`}>
                   <label className="text-[10px] text-slate-400 block mb-4 uppercase font-black tracking-[0.2em]">Google Sheet Webhook Endpoint</label>
                   <div className="flex gap-3">
                     <input type="text" placeholder="https://script.google.com/..." value={webhookUrl} onChange={(e) => { onWebhookChange(e.target.value); setHasVerifiedOnce(false); }} className="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 text-sm text-indigo-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium backdrop-blur-sm" />
-                    <button onClick={handleTestConnection} disabled={isTesting || !webhookUrl} className={`p-5 rounded-2xl transition-all min-w-[140px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest ${isTesting ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/40'}`}>{isTesting ? <WifiIcon className="w-5 h-5 animate-ping" /> : <><WifiIcon className="w-5 h-5" /> Verify</>}</button>
+                    <button onClick={handleTestConnection} disabled={isTesting || !webhookUrl} className={`p-5 rounded-2xl transition-all min-w-[140px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest ${isTesting ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/40'}`}>{isTesting ? <WifiIcon className="w-5 h-5 animate-ping" /> : <><WifiIcon className="w-5 h-5" /> Verify Link</>}</button>
                   </div>
                 </div>
               </div>
-              <div className={`space-y-12 transition-all duration-700 ${isLocked ? 'blur-sm grayscale opacity-30 pointer-events-none select-none' : ''}`}>
+              <div className="space-y-12">
                 <div className="bg-slate-800/20 p-8 rounded-[2rem] border border-slate-700/30">
                   <div className="flex justify-between items-center mb-6"><label className="text-[10px] text-slate-400 uppercase font-black tracking-[0.2em]">Waitlist Capacity</label><span className="bg-indigo-500/10 text-indigo-400 px-5 py-2 rounded-full text-[10px] font-black border border-indigo-500/30">{waitlistConfig.maxSize} SLOTS</span></div>
                   <input type="range" min="0" max="25" value={waitlistConfig.maxSize} onChange={(e) => setWaitlistConfig({ maxSize: parseInt(e.target.value) })} className="w-full accent-indigo-500 h-2 bg-slate-800 rounded-full appearance-none cursor-pointer" />
