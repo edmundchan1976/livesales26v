@@ -25,7 +25,8 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   ExclamationCircleIcon,
-  CheckBadgeIcon
+  CheckBadgeIcon,
+  TagIcon
 } from '@heroicons/react/24/outline';
 
 interface Props {
@@ -74,6 +75,9 @@ const SellerDashboard: React.FC<Props> = ({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [hasVerifiedOnce, setHasVerifiedOnce] = useState(!!webhookUrl);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
+  
+  // Filtering mode for Live Orders tab
+  const [orderFilterMode, setOrderFilterMode] = useState<'all' | 'waitlisted'>('all');
 
   const handleTabClick = async (tab: any) => {
     setActiveTab(tab);
@@ -123,7 +127,7 @@ const SellerDashboard: React.FC<Props> = ({
       if (o.status === 'waitlisted') g.hasWaitlistedLine = true;
     });
 
-    return Object.values(groups).map(g => {
+    const result = Object.values(groups).map(g => {
       g.distinctItems = g.lines.length;
       const hasConfirmed = g.lines.some(l => l.status === 'confirmed');
       const hasWaitlisted = g.lines.some(l => l.status === 'waitlisted');
@@ -133,8 +137,17 @@ const SellerDashboard: React.FC<Props> = ({
       else g.overallStatus = 'confirmed';
       
       return g;
-    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    });
+
+    return result.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [orders, itemPriceMap]);
+
+  const filteredOrders = useMemo(() => {
+    if (orderFilterMode === 'waitlisted') {
+      return groupedOrders.filter(g => g.hasWaitlistedLine);
+    }
+    return groupedOrders;
+  }, [groupedOrders, orderFilterMode]);
 
   const toggleOrderExpansion = (orderId: string) => {
     const newSet = new Set(expandedOrderIds);
@@ -160,7 +173,6 @@ const SellerDashboard: React.FC<Props> = ({
   };
 
   const totalBalance = items.reduce((acc, i) => acc + i.quantity, 0);
-  const revenuePotential = items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
   const uniqueOrderCount = groupedOrders.length;
   const uniqueWaitlistOrderCount = groupedOrders.filter(g => g.hasWaitlistedLine).length;
 
@@ -263,27 +275,6 @@ const SellerDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Metrics Dashboard */}
-      <div className={`grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 transition-all duration-700 ${isLocked ? 'blur-md grayscale opacity-50 pointer-events-none' : ''}`}>
-        {[
-          { label: 'Inventory', value: items.length, color: 'bg-slate-500', icon: ListBulletIcon },
-          { label: 'Total Orders', value: uniqueOrderCount, color: 'bg-indigo-500', icon: UserGroupIcon },
-          { label: 'Waitlisted', value: uniqueWaitlistOrderCount, color: 'bg-amber-500', icon: ClockIcon },
-          { label: 'Line Items', value: orders.length, color: 'bg-emerald-500', icon: DocumentDuplicateIcon },
-          { label: 'Total Stock', value: totalBalance, color: 'bg-rose-500', icon: PlusCircleIcon },
-          { label: 'Potential', value: `$${revenuePotential.toFixed(0)}`, color: 'bg-purple-500', icon: ChartBarIcon },
-        ].map((m, idx) => (
-          <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm transition-all hover:shadow-md group">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{m.label}</p>
-              <m.icon className="w-3.5 h-3.5 text-slate-200 group-hover:text-slate-400 transition-colors" />
-            </div>
-            <p className="text-2xl font-black text-slate-900 tracking-tight">{m.value}</p>
-            <div className={`h-1 w-6 rounded-full mt-2.5 ${m.color}`}></div>
-          </div>
-        ))}
-      </div>
-
       {/* Navigation */}
       <div className="flex flex-wrap gap-2 bg-slate-200/50 p-1.5 rounded-2xl w-fit relative">
         {[
@@ -354,37 +345,62 @@ const SellerDashboard: React.FC<Props> = ({
         )}
 
         {activeTab === 'orders' && (
-          <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-300">
-            {/* Stock Health Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
+            {/* Quick Summary Cards (Interactive) */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+               <button 
+                  onClick={() => setOrderFilterMode('all')}
+                  className={`p-6 rounded-[2.5rem] border transition-all text-left flex items-center justify-between group ${orderFilterMode === 'all' ? 'bg-indigo-600 border-indigo-500 shadow-xl shadow-indigo-100 text-white' : 'bg-white border-slate-200 text-slate-900 shadow-sm hover:border-indigo-300'}`}
+               >
                   <div>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Stock Balance</p>
-                    <p className="text-2xl font-black text-slate-900">{totalBalance} Units</p>
+                    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'all' ? 'text-indigo-200' : 'text-slate-400'}`}>Total Active Sessions</p>
+                    <p className="text-3xl font-black">{uniqueOrderCount}</p>
                   </div>
-                  <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-500"><CheckBadgeIcon className="w-6 h-6" /></div>
-               </div>
-               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div className={`p-4 rounded-2xl ${orderFilterMode === 'all' ? 'bg-white/10' : 'bg-slate-50 text-slate-300 group-hover:text-indigo-400'}`}><UserGroupIcon className="w-8 h-8" /></div>
+               </button>
+
+               <button 
+                  onClick={() => setOrderFilterMode('waitlisted')}
+                  className={`p-6 rounded-[2.5rem] border transition-all text-left flex items-center justify-between group ${orderFilterMode === 'waitlisted' ? 'bg-amber-500 border-amber-400 shadow-xl shadow-amber-100 text-white' : 'bg-white border-slate-200 text-slate-900 shadow-sm hover:border-amber-300'}`}
+               >
                   <div>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Waitlist Triggered</p>
-                    <p className={`text-2xl font-black ${uniqueWaitlistOrderCount > 0 ? 'text-amber-500' : 'text-slate-900'}`}>{uniqueWaitlistOrderCount} Orders</p>
+                    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'waitlisted' ? 'text-amber-100' : 'text-slate-400'}`}>Waitlist Triggered</p>
+                    <p className="text-3xl font-black">{uniqueWaitlistOrderCount}</p>
                   </div>
-                  <div className={`p-3 rounded-2xl ${uniqueWaitlistOrderCount > 0 ? 'bg-amber-50 text-amber-500 animate-pulse' : 'bg-slate-50 text-slate-300'}`}><ClockIcon className="w-6 h-6" /></div>
+                  <div className={`p-4 rounded-2xl ${orderFilterMode === 'waitlisted' ? 'bg-white/10' : 'bg-slate-50 text-slate-300 group-hover:text-amber-500'}`}><ExclamationCircleIcon className="w-8 h-8" /></div>
+               </button>
+
+               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
+                  <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Stock Balance</p>
+                    <p className="text-3xl font-black text-slate-900">{totalBalance} units</p>
+                  </div>
+                  <div className="p-4 bg-emerald-50 rounded-2xl text-emerald-500"><CheckBadgeIcon className="w-8 h-8" /></div>
                </div>
             </div>
 
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+            {/* Main Transactions Section */}
+            <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
                <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Live Transactions</h3>
+                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">
+                       {orderFilterMode === 'all' ? 'Live Transactions' : 'Waitlisted Priority Queue'}
+                    </h3>
                     {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
                   </div>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Fetching directly from Sheet "Orders". Click row to expand.</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">
+                    {orderFilterMode === 'all' ? 'Consolidated view of all buyer sessions.' : 'Viewing only orders with waitlisted items.'}
+                  </p>
                 </div>
-                <button onClick={handleManualSync} disabled={isSyncing} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100 active:scale-95 transition-all">
-                  <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Feed
-                </button>
+                <div className="flex gap-2">
+                   {orderFilterMode !== 'all' && (
+                     <button onClick={() => setOrderFilterMode('all')} className="px-4 py-2 text-[9px] font-black uppercase tracking-widest text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">Clear Filter</button>
+                   )}
+                   <button onClick={handleManualSync} disabled={isSyncing} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100 active:scale-95 transition-all">
+                     <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Sheet
+                   </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left border-collapse">
@@ -395,23 +411,21 @@ const SellerDashboard: React.FC<Props> = ({
                       <th className="px-6 py-4">Time (SGT)</th>
                       <th className="px-6 py-4">Buyer</th>
                       <th className="px-6 py-4 text-center">Items</th>
-                      <th className="px-6 py-4 text-center">Total Qty</th>
+                      <th className="px-6 py-4 text-center">Qty</th>
                       <th className="px-6 py-4 text-right">Total Cost</th>
-                      <th className="px-6 py-4 text-center">Waitlist Check</th>
-                      <th className="px-6 py-4 text-center">Overall Status</th>
+                      <th className="px-6 py-4 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {groupedOrders.length === 0 ? (
-                      <tr><td colSpan={9} className="px-6 py-24 text-center">
+                    {filteredOrders.length === 0 ? (
+                      <tr><td colSpan={8} className="px-6 py-24 text-center">
                         <div className="flex flex-col items-center gap-4">
-                           <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200"><UserGroupIcon className="w-8 h-8" /></div>
-                           <p className="text-slate-400 font-black uppercase text-[10px] tracking-[0.2em]">{isSyncing ? 'Syncing Cloud Data...' : 'No orders found in current batch'}</p>
-                           {!isSyncing && <button onClick={handleManualSync} className="text-indigo-600 text-[10px] font-black uppercase underline">Check Sheet Again</button>}
+                           <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200"><DocumentDuplicateIcon className="w-8 h-8" /></div>
+                           <p className="text-slate-400 font-black uppercase text-[10px] tracking-[0.2em]">{isSyncing ? 'Fetching from Google Sheets...' : 'No orders matched your criteria'}</p>
                         </div>
                       </td></tr>
                     ) : (
-                      groupedOrders.map((group) => {
+                      filteredOrders.map((group) => {
                         const isExpanded = expandedOrderIds.has(group.orderId);
                         return (
                           <React.Fragment key={group.orderId}>
@@ -426,47 +440,32 @@ const SellerDashboard: React.FC<Props> = ({
                               <td className="px-6 py-6 text-center font-black text-slate-900">{group.totalQty}</td>
                               <td className="px-6 py-6 text-right font-black text-emerald-600 tracking-tight">${group.totalCost.toFixed(2)}</td>
                               <td className="px-6 py-6 text-center">
-                                 {group.hasWaitlistedLine ? (
-                                   <div className="flex justify-center items-center gap-1.5 text-amber-500 animate-pulse">
-                                     <ExclamationCircleIcon className="w-4 h-4" />
-                                     <span className="text-[8px] font-black uppercase">Waitlist Active</span>
-                                   </div>
-                                 ) : (
-                                   <div className="flex justify-center items-center gap-1.5 text-emerald-500">
-                                     <ShieldCheckIcon className="w-4 h-4" />
-                                     <span className="text-[8px] font-black uppercase">Confirmed</span>
-                                   </div>
-                                 )}
-                              </td>
-                              <td className="px-6 py-6 text-center">
                                 <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border shadow-sm ${
                                   group.overallStatus === 'confirmed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
                                   group.overallStatus === 'mixed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                                  'bg-amber-50 text-amber-700 border-amber-200'
+                                  'bg-amber-50 text-amber-700 border-amber-200 animate-pulse'
                                 }`}>
                                   {group.overallStatus}
                                 </span>
                               </td>
                             </tr>
                             {isExpanded && (
-                              <tr className="bg-indigo-50/10">
-                                <td colSpan={9} className="px-12 py-8 border-b border-indigo-100/50">
+                              <tr className="bg-indigo-50/5">
+                                <td colSpan={8} className="px-12 py-8 border-b border-indigo-100/30">
                                   <div className="space-y-6">
                                     <div className="flex flex-wrap gap-8 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-200 pb-4">
                                       <div className="flex items-center gap-2 text-slate-600"><UserGroupIcon className="w-3.5 h-3.5" /> Email: {group.buyerEmail}</div>
-                                      <div className="flex items-center gap-2 text-slate-600"><PlusCircleIcon className="w-3.5 h-3.5" /> Address: {group.address}</div>
-                                      <div className="flex items-center gap-2 text-indigo-500 ml-auto"><ShieldCheckIcon className="w-3.5 h-3.5" /> Session Verified via Sheet Orders</div>
+                                      <div className="flex items-center gap-2 text-slate-600"><ClockIcon className="w-3.5 h-3.5" /> Ordered At: {group.timestamp}</div>
+                                      <div className="flex items-center gap-2 text-indigo-500 ml-auto"><ShieldCheckIcon className="w-3.5 h-3.5" /> Verified Cloud Session</div>
                                     </div>
-                                    <table className="w-full text-[11px] border-collapse">
+                                    <table className="w-full text-[11px]">
                                       <thead className="text-slate-400 uppercase font-bold border-b border-slate-100">
                                         <tr>
-                                          <th className="text-left py-3">Mnemonic</th>
-                                          <th className="text-left py-3">Item Name</th>
+                                          <th className="text-left py-3">Item Details</th>
                                           <th className="text-center py-3">Order Qty</th>
-                                          <th className="text-center py-3">Current Sheet Balance</th>
-                                          <th className="text-right py-3">Unit Price</th>
-                                          <th className="text-right py-3">Subtotal</th>
-                                          <th className="text-center py-3">Line Status</th>
+                                          <th className="text-center py-3">Available Balance</th>
+                                          <th className="text-right py-3">Line Subtotal</th>
+                                          <th className="text-center py-3">Final Outcome</th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-100/50">
@@ -474,19 +473,20 @@ const SellerDashboard: React.FC<Props> = ({
                                           const price = itemPriceMap.get(line.mnemonic.toUpperCase()) || 0;
                                           const balance = itemStockMap.get(line.mnemonic.toUpperCase()) ?? '??';
                                           return (
-                                            <tr key={idx} className="text-slate-600 hover:bg-white/40 transition-colors">
-                                              <td className="py-4 font-mono font-black text-indigo-500 tracking-wider">{line.mnemonic}</td>
-                                              <td className="py-4 font-black text-slate-800">{line.itemName}</td>
+                                            <tr key={idx} className="text-slate-600">
+                                              <td className="py-4">
+                                                 <div className="font-black text-slate-900">{line.itemName}</div>
+                                                 <div className="text-[9px] font-mono text-indigo-400 mt-0.5">#{line.mnemonic} @ ${price.toFixed(2)}/ea</div>
+                                              </td>
                                               <td className="py-4 text-center font-black text-lg">{line.quantity}</td>
                                               <td className="py-4 text-center">
-                                                 <span className={`px-3 py-1 rounded-full font-black text-[9px] uppercase border ${typeof balance === 'number' && balance <= 0 ? 'bg-rose-50 text-rose-600 border-rose-100 animate-pulse' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                                                   {balance} units remaining
+                                                 <span className={`px-3 py-1 rounded-full font-black text-[9px] uppercase border ${typeof balance === 'number' && balance <= 0 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                                                   {balance} units left
                                                  </span>
                                               </td>
-                                              <td className="py-4 text-right text-slate-400 font-bold">${price.toFixed(2)}</td>
                                               <td className="py-4 text-right font-black text-slate-900 text-sm">${(price * line.quantity).toFixed(2)}</td>
                                               <td className="py-4 text-center">
-                                                <span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${line.status === 'confirmed' ? 'text-emerald-500 border-emerald-100 bg-emerald-50/50' : 'text-amber-500 border-amber-100 bg-amber-50/50'}`}>
+                                                <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded border shadow-sm ${line.status === 'confirmed' ? 'text-emerald-500 border-emerald-100 bg-emerald-50/50' : 'text-amber-500 border-amber-100 bg-amber-50/50'}`}>
                                                   {line.status}
                                                 </span>
                                               </td>
@@ -507,12 +507,48 @@ const SellerDashboard: React.FC<Props> = ({
                 </table>
               </div>
             </div>
+
+            {/* NEW SECTION: Itemized Stock Balance List (Requested) */}
+            <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
+               <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30">
+                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs flex items-center gap-2">
+                    <TagIcon className="w-4 h-4 text-emerald-500" />
+                    Itemized Stock Balance (Real-Time)
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Instant check of your remaining inventory quantities from the cloud.</p>
+               </div>
+               <div className="p-2 overflow-x-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 p-4">
+                     {items.length === 0 ? (
+                       <div className="col-span-full py-12 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">No stock data available.</div>
+                     ) : (
+                       items.map(item => (
+                         <div key={item.id} className="bg-slate-50 border border-slate-100 p-4 rounded-2xl flex flex-col justify-between hover:border-emerald-200 transition-all hover:bg-emerald-50/20 group">
+                            <div className="mb-4">
+                               <p className="text-[10px] font-mono text-indigo-400 font-black tracking-wider uppercase mb-1">#{item.mnemonic}</p>
+                               <h4 className="font-black text-slate-800 text-sm leading-tight group-hover:text-slate-950">{item.name}</h4>
+                            </div>
+                            <div className="flex justify-between items-end">
+                               <div className="flex flex-col">
+                                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Remaining</span>
+                                  <span className={`text-xl font-black ${item.quantity <= 0 ? 'text-rose-500 animate-pulse' : 'text-slate-900'}`}>{item.quantity} units</span>
+                               </div>
+                               <div className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase ${item.quantity > 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {item.quantity > 5 ? 'Healthy' : 'Low Stock'}
+                               </div>
+                            </div>
+                         </div>
+                       ))
+                     )}
+                  </div>
+               </div>
+            </div>
           </div>
         )}
 
         {activeTab === 'viz' && (
-          <div className="bg-white p-12 rounded-3xl border border-slate-200 shadow-sm animate-in slide-in-from-bottom-4 duration-300">
-            <h3 className="font-black text-slate-900 mb-10 uppercase tracking-widest text-xs">Sales vs. Priority Analytics</h3>
+          <div className="bg-white p-12 rounded-[3rem] border border-slate-200 shadow-sm animate-in slide-in-from-bottom-4 duration-300">
+            <h3 className="font-black text-slate-900 mb-10 uppercase tracking-widest text-xs">Demand Visualization</h3>
             <OrderVisualizer items={items} orders={orders} />
           </div>
         )}
@@ -530,7 +566,7 @@ const SellerDashboard: React.FC<Props> = ({
 
         {activeTab === 'settings' && (
           <section className="bg-slate-900 p-12 rounded-[3rem] text-white shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-            {(!webhookUrl || !hasVerifiedOnce) && <div className="absolute top-0 left-0 w-full bg-indigo-600/20 py-2 text-center text-[10px] font-black uppercase tracking-[0.2em] border-b border-indigo-500/30 animate-pulse">Configuration Required: Sync your Google Sheet Webhook</div>}
+            {!webhookUrl && <div className="absolute top-0 left-0 w-full bg-indigo-600/20 py-2 text-center text-[10px] font-black uppercase tracking-[0.2em] border-b border-indigo-500/30 animate-pulse">Configuration Required: Sync your Google Sheet Webhook</div>}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6 mt-4">
               <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${!webhookUrl ? 'bg-amber-500 text-white animate-bounce' : 'bg-white/10 text-indigo-400'}`}>{!webhookUrl ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {webhookUrl ? 'System Configuration' : 'Cloud Setup Required'}</h3>
               {hasVerifiedOnce && <div className="bg-emerald-500/10 text-emerald-400 px-5 py-2 rounded-full text-[10px] font-black border border-emerald-500/30 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></div> System Connected</div>}
