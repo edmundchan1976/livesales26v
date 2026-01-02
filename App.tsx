@@ -27,7 +27,7 @@ const App: React.FC = () => {
     setItems([]);
     setOrders([]);
     setLastSync(null);
-    setSyncDiagnostic('Memory Reset: Cache purged.');
+    setSyncDiagnostic('Memory Purged. Waiting for fresh Cloud Link...');
   }, []);
 
   useEffect(() => {
@@ -48,40 +48,50 @@ const App: React.FC = () => {
   };
 
   const fetchInventoryFromSheets = useCallback(async (targetUrl?: string) => {
-    const url = targetUrl || webhookUrl;
+    const rawUrl = targetUrl || webhookUrl;
+    const url = (rawUrl || '').trim(); // Sanitize URL
+    
     if (!url || !url.startsWith('http')) {
-      setSyncDiagnostic('Wait: Invalid or missing Webhook URL.');
+      setSyncDiagnostic('Wait: Cloud Hub URL is missing or invalid.');
       return;
     }
     
     setIsLoadingItems(true);
-    setSyncDiagnostic('Connecting to Cloud Hub...');
+    setSyncDiagnostic('Syncing with Google Engine...');
     
     try {
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 15000);
+      const id = setTimeout(() => controller.abort(), 20000); // Increased timeout for slow scripts
       
-      const response = await fetch(url, { signal: controller.signal });
+      // Explicitly follow redirects for Google Apps Script
+      const response = await fetch(url, { 
+        method: 'GET',
+        mode: 'cors',
+        redirect: 'follow',
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
       clearTimeout(id);
       
-      if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}: Connectivity limited.`);
       
       const data = await response.json();
-      console.log('Raw Cloud Data:', data);
+      console.debug('Sync Payload:', data);
       
       let rawItems = [];
       let rawOrders = [];
 
-      // Flexible extraction to handle various Apps Script return formats
       if (Array.isArray(data)) {
         rawItems = data;
       } else if (data && typeof data === 'object') {
-        // Checking for common sheet name variants
-        rawItems = data.Inventory || data.inventory || data.items || data.Items || data.Master_Inventory || [];
+        // Broad capture to handle inconsistent sheet names
+        rawItems = data.Inventory || data.inventory || data.Items || data.items || data.Master_Inventory || data.MasterInventory || [];
         rawOrders = data.Orders || data.orders || data.Order_Log || data.OrderLog || [];
       }
 
-      // 1. Map Inventory Items
+      // Map Inventory
       const mappedItems: Item[] = (rawItems || []).map((it: any, idx: number) => ({
         id: it.id || it.mnemonic || it.Mnemonic || `item-${idx}`,
         category: it.Category || it.category || 'General',
@@ -96,9 +106,9 @@ const App: React.FC = () => {
         mnemonic: (String(it.Mnemonic || it.mnemonic || '')).toUpperCase(),
         order: it.order !== undefined ? it.order : idx,
         allowUpsell: isTruthy(it.AllowUpsell || it.allowUpsell)
-      })).filter(it => it.mnemonic); // Ensure item has a mnemonic
+      })).filter(it => it.mnemonic);
 
-      // 2. Map Orders with extreme property flexibility
+      // Map Orders
       const mappedOrders: Order[] = (rawOrders || [])
         .filter((o: any) => o && (o.OrderID || o.orderId || o.Mnemonic || o.mnemonic || o.Buyer || o.buyerName))
         .map((o: any, idx: number) => {
@@ -108,14 +118,14 @@ const App: React.FC = () => {
           return {
             id: o.id || `${orderId}-${idx}`,
             orderId: orderId,
-            itemId: o.itemId || o.item_id || '',
+            itemId: o.itemId || '',
             itemName: o.ItemName || o.itemName || o.item_name || 'Item',
             mnemonic: (String(o.Mnemonic || o.mnemonic || 'N/A')).toUpperCase(),
-            buyerName: o.Buyer || o.buyerName || o.buyer_name || 'Guest',
-            buyerEmail: o.Email || o.email || o.buyerEmail || '-',
-            quantity: parseInt(o.Quantity || o.quantity || o.qty || 0),
+            buyerName: o.Buyer || o.buyerName || 'Guest',
+            buyerEmail: o.Email || o.email || '-',
+            quantity: parseInt(o.Quantity || o.quantity || 0),
             address: o.Address || o.address || '-',
-            timestamp: o.Timestamp || o.timestamp || o.date || new Date().toISOString(),
+            timestamp: o.Timestamp || o.timestamp || new Date().toISOString(),
             status: statusRaw.includes('waitlist') ? 'waitlisted' : 'confirmed'
           };
         });
@@ -134,10 +144,14 @@ const App: React.FC = () => {
       }).format(new Date());
       
       setLastSync(timeStr);
-      setSyncDiagnostic(`Success: Synced ${mappedItems.length} items & ${mappedOrders.length} orders.`);
+      setSyncDiagnostic(`Sync Verified: Found ${mappedItems.length} SKU(s) and ${mappedOrders.length} Order(s).`);
     } catch (e: any) {
-      console.error("Cloud Fetch failed:", e);
-      setSyncDiagnostic(`Error: ${e.message}. Check if script is shared as 'Anyone'.`);
+      console.error("Critical Cloud Fetch Failure:", e);
+      if (e.name === 'TypeError' || e.message === 'Failed to fetch') {
+        setSyncDiagnostic('CONNECTION_BLOCKED: The browser blocked the Cloud Link. Ensure script is deployed as Web App for "Anyone".');
+      } else {
+        setSyncDiagnostic(`Error: ${e.message}`);
+      }
     } finally {
       setIsLoadingItems(false);
       hasAttemptedInitialSync.current = true;
@@ -188,7 +202,8 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(newItems));
     localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(newOrders));
     
-    if (webhookUrl) {
+    const url = (webhookUrl || '').trim();
+    if (url) {
       const push = async () => {
         try {
           const payload = {
@@ -214,7 +229,7 @@ const App: React.FC = () => {
               AppStatus: o.status
             }))
           };
-          await fetch(webhookUrl, {
+          await fetch(url, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain' },
@@ -239,11 +254,11 @@ const App: React.FC = () => {
           <div className="flex gap-4 items-center">
             {lastSync && (
               <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
-                <span className="text-[9px] font-black uppercase tracking-widest">CLOUD SYNC: {lastSync}</span>
+                <span className="text-[9px] font-black uppercase tracking-widest">LIVE CLOUD: {lastSync}</span>
               </div>
             )}
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Seller Dashboard
+              Control Panel
             </span>
           </div>
         </nav>
