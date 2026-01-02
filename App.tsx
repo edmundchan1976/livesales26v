@@ -18,7 +18,7 @@ const App: React.FC = () => {
   const [activeMnemonic, setActiveMnemonic] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
-  const [syncDiagnostic, setSyncDiagnostic] = useState<string>(''); // For troubleshooting
+  const [syncDiagnostic, setSyncDiagnostic] = useState<string>('');
   const hasAttemptedInitialSync = useRef(false);
 
   const clearMemoryAndCache = useCallback(() => {
@@ -27,7 +27,7 @@ const App: React.FC = () => {
     setItems([]);
     setOrders([]);
     setLastSync(null);
-    setSyncDiagnostic('Memory Reset: Database cleared.');
+    setSyncDiagnostic('Memory Reset: Cache purged.');
   }, []);
 
   useEffect(() => {
@@ -49,64 +49,80 @@ const App: React.FC = () => {
 
   const fetchInventoryFromSheets = useCallback(async (targetUrl?: string) => {
     const url = targetUrl || webhookUrl;
-    if (!url) return;
+    if (!url || !url.startsWith('http')) {
+      setSyncDiagnostic('Wait: Invalid or missing Webhook URL.');
+      return;
+    }
+    
     setIsLoadingItems(true);
-    setSyncDiagnostic('Sync initiated: Connecting to Google Apps Script...');
+    setSyncDiagnostic('Connecting to Cloud Hub...');
+    
     try {
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 12000);
+      const id = setTimeout(() => controller.abort(), 15000);
       
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(id);
       
+      if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+      
       const data = await response.json();
-      console.log('Sync Response Payload:', data);
+      console.log('Raw Cloud Data:', data);
       
       let rawItems = [];
       let rawOrders = [];
 
-      // Flexible extraction to handle various Apps Script response formats
+      // Flexible extraction to handle various Apps Script return formats
       if (Array.isArray(data)) {
         rawItems = data;
       } else if (data && typeof data === 'object') {
-        rawItems = data.Inventory || data.inventory || data.items || data.Items || [];
-        rawOrders = data.Orders || data.orders || data.Order_Log || [];
+        // Checking for common sheet name variants
+        rawItems = data.Inventory || data.inventory || data.items || data.Items || data.Master_Inventory || [];
+        rawOrders = data.Orders || data.orders || data.Order_Log || data.OrderLog || [];
       }
 
       // 1. Map Inventory Items
       const mappedItems: Item[] = (rawItems || []).map((it: any, idx: number) => ({
         id: it.id || it.mnemonic || it.Mnemonic || `item-${idx}`,
-        category: it.category || it.Category || 'General',
-        name: it.name || it.itemName || it.ItemName || 'Unknown Item',
-        price: parseFloat(it.price || it.Price || 0),
-        quantity: parseInt(it.quantity !== undefined ? it.quantity : (it.AvailableBalance !== undefined ? it.AvailableBalance : (it.Balance || 0))),
-        mnemonic: (String(it.mnemonic || it.Mnemonic || '')).toUpperCase(),
+        category: it.Category || it.category || 'General',
+        name: it.ItemName || it.itemName || it.Item_Name || it.name || 'Unknown Item',
+        price: parseFloat(it.Price || it.price || 0),
+        quantity: parseInt(
+          it.AvailableBalance !== undefined ? it.AvailableBalance : 
+          (it.quantity !== undefined ? it.quantity : 
+          (it.Balance !== undefined ? it.Balance : 
+          (it.Quantity !== undefined ? it.Quantity : 0)))
+        ),
+        mnemonic: (String(it.Mnemonic || it.mnemonic || '')).toUpperCase(),
         order: it.order !== undefined ? it.order : idx,
-        allowUpsell: isTruthy(it.allowUpsell || it.AllowUpsell)
-      }));
+        allowUpsell: isTruthy(it.AllowUpsell || it.allowUpsell)
+      })).filter(it => it.mnemonic); // Ensure item has a mnemonic
 
-      // 2. Map Orders with robust key detection and valid ID fallback
+      // 2. Map Orders with extreme property flexibility
       const mappedOrders: Order[] = (rawOrders || [])
-        .filter((o: any) => (o.OrderID || o.orderId || o.Mnemonic || o.mnemonic)) // Filter out empty spreadsheet rows
+        .filter((o: any) => o && (o.OrderID || o.orderId || o.Mnemonic || o.mnemonic || o.Buyer || o.buyerName))
         .map((o: any, idx: number) => {
-          const orderId = String(o.OrderID || o.orderId || o.id || `SYNC-${idx}`);
+          const orderId = String(o.OrderID || o.orderId || o.id || `CLD-${idx}`);
+          const statusRaw = String(o.Status || o.AppStatus || o.appStatus || o.status || 'confirmed').toLowerCase();
+          
           return {
             id: o.id || `${orderId}-${idx}`,
             orderId: orderId,
-            itemId: o.itemId || '',
-            itemName: o.ItemName || o.itemName || 'Item',
+            itemId: o.itemId || o.item_id || '',
+            itemName: o.ItemName || o.itemName || o.item_name || 'Item',
             mnemonic: (String(o.Mnemonic || o.mnemonic || 'N/A')).toUpperCase(),
-            buyerName: o.Buyer || o.buyerName || 'Guest',
-            buyerEmail: o.Email || o.buyerEmail || '-',
-            quantity: parseInt(o.Quantity || o.quantity || 0),
+            buyerName: o.Buyer || o.buyerName || o.buyer_name || 'Guest',
+            buyerEmail: o.Email || o.email || o.buyerEmail || '-',
+            quantity: parseInt(o.Quantity || o.quantity || o.qty || 0),
             address: o.Address || o.address || '-',
-            timestamp: o.Timestamp || o.timestamp || new Date().toISOString(),
-            status: (String(o.Status || o.AppStatus || o.status || 'confirmed')).toLowerCase().includes('waitlist') ? 'waitlisted' : 'confirmed'
+            timestamp: o.Timestamp || o.timestamp || o.date || new Date().toISOString(),
+            status: statusRaw.includes('waitlist') ? 'waitlisted' : 'confirmed'
           };
         });
       
       setItems(mappedItems);
       setOrders(mappedOrders);
+      
       localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(mappedItems));
       localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(mappedOrders));
 
@@ -118,10 +134,10 @@ const App: React.FC = () => {
       }).format(new Date());
       
       setLastSync(timeStr);
-      setSyncDiagnostic(`Success: ${mappedItems.length} items & ${mappedOrders.length} orders found.`);
+      setSyncDiagnostic(`Success: Synced ${mappedItems.length} items & ${mappedOrders.length} orders.`);
     } catch (e: any) {
-      console.error("Fetch failed", e);
-      setSyncDiagnostic(`Error: ${e.message}. Check if Script is public and Tab names are correct.`);
+      console.error("Cloud Fetch failed:", e);
+      setSyncDiagnostic(`Error: ${e.message}. Check if script is shared as 'Anyone'.`);
     } finally {
       setIsLoadingItems(false);
       hasAttemptedInitialSync.current = true;
@@ -223,11 +239,11 @@ const App: React.FC = () => {
           <div className="flex gap-4 items-center">
             {lastSync && (
               <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
-                <span className="text-[9px] font-black uppercase tracking-widest">SGT CLOUD SYNC: {lastSync}</span>
+                <span className="text-[9px] font-black uppercase tracking-widest">CLOUD SYNC: {lastSync}</span>
               </div>
             )}
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              Seller Control Panel
+              Seller Dashboard
             </span>
           </div>
         </nav>
