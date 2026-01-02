@@ -20,14 +20,13 @@ const App: React.FC = () => {
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const hasAttemptedInitialSync = useRef(false);
 
-  // Function to wipe browser memory for this app
   const clearMemoryAndCache = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY_ITEMS);
     localStorage.removeItem(STORAGE_KEY_ORDERS);
+    // Note: We don't remove webhook url so the user doesn't have to re-paste it after verification
     setItems([]);
     setOrders([]);
     setLastSync(null);
-    console.log("Memory and cache cleared.");
   }, []);
 
   useEffect(() => {
@@ -67,41 +66,39 @@ const App: React.FC = () => {
         rawItems = data;
       } else if (data && typeof data === 'object') {
         // Source of Truth: Data from the "Inventory" calculated sheet in Apps Script
-        rawItems = data.Inventory || data.items || [];
+        rawItems = data.Inventory || data.inventory || data.items || [];
         rawOrders = data.Orders || data.orders || [];
       }
 
-      if (rawItems.length > 0) {
-        const mappedItems: Item[] = rawItems.map((it: any, idx: number) => ({
-          id: it.id || it.mnemonic || it.Mnemonic || `sync-${idx}`,
-          category: it.category || it.Category || 'General',
-          name: it.name || it.itemName || it.ItemName || 'Unknown Item',
-          price: parseFloat(it.price || it.Price || 0),
-          // Mapping "quantity" to the calculated balance from Google Sheet
-          quantity: parseInt(it.quantity !== undefined ? it.quantity : (it.AvailableBalance !== undefined ? it.AvailableBalance : (it.Balance || 0))),
-          mnemonic: (String(it.mnemonic || it.Mnemonic || '')).toUpperCase(),
-          order: idx,
-          allowUpsell: isTruthy(it.allowUpsell || it.AllowUpsell)
-        }));
-        setItems(mappedItems);
-        localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(mappedItems));
-      }
+      const mappedItems: Item[] = (rawItems || []).map((it: any, idx: number) => ({
+        id: it.id || it.mnemonic || it.Mnemonic || `sync-item-${idx}`,
+        category: it.category || it.Category || 'General',
+        name: it.name || it.itemName || it.ItemName || 'Unknown Item',
+        price: parseFloat(it.price || it.Price || 0),
+        // Source of Truth for Balance: Mapping "quantity" field from Inventory sheet
+        quantity: parseInt(it.quantity !== undefined ? it.quantity : (it.AvailableBalance !== undefined ? it.AvailableBalance : (it.Balance || 0))),
+        mnemonic: (String(it.mnemonic || it.Mnemonic || '')).toUpperCase(),
+        order: idx,
+        allowUpsell: isTruthy(it.allowUpsell || it.AllowUpsell)
+      }));
 
-      const mappedOrders: Order[] = (rawOrders || []).map((o: any) => ({
-        id: o.id || o.orderId || o.OrderID || Math.random().toString(),
-        orderId: o.orderId || o.OrderID || 'N/A',
+      const mappedOrders: Order[] = (rawOrders || []).map((o: any, idx: number) => ({
+        id: o.id || o.OrderID || o.orderId || `sync-order-${idx}`,
+        orderId: o.OrderID || o.orderId || o.id || 'N/A',
         itemId: o.itemId || '',
-        itemName: o.itemName || o.ItemName || 'Unknown Item',
-        mnemonic: (String(o.mnemonic || o.Mnemonic || 'N/A')).toUpperCase(),
-        buyerName: o.buyerName || o.Buyer || 'Guest',
-        buyerEmail: o.buyerEmail || o.Email || '-',
-        quantity: parseInt(o.quantity || o.Quantity || 0),
-        address: o.address || o.Address || '-',
-        timestamp: o.timestamp || o.Timestamp || new Date().toISOString(),
-        status: (String(o.status || o.AppStatus || 'confirmed')).toLowerCase().includes('waitlist') ? 'waitlisted' : 'confirmed'
+        itemName: o.ItemName || o.itemName || 'Unknown Item',
+        mnemonic: (String(o.Mnemonic || o.mnemonic || 'N/A')).toUpperCase(),
+        buyerName: o.Buyer || o.buyerName || 'Guest',
+        buyerEmail: o.Email || o.buyerEmail || '-',
+        quantity: parseInt(o.Quantity || o.quantity || 0),
+        address: o.Address || o.address || '-',
+        timestamp: o.Timestamp || o.timestamp || new Date().toISOString(),
+        status: (String(o.Status || o.AppStatus || o.status || 'confirmed')).toLowerCase().includes('waitlist') ? 'waitlisted' : 'confirmed'
       }));
       
+      setItems(mappedItems);
       setOrders(mappedOrders);
+      localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(mappedItems));
       localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(mappedOrders));
 
       setLastSync(new Intl.DateTimeFormat('en-GB', { 
