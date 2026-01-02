@@ -1,0 +1,7 @@
+{
+  "name": "Mnemonic Inventory & Order Hub",
+  "description": "A comprehensive MVP for managing inventory with AI data extraction, unique mnemonic code generation, QR-based ordering, and automated waitlist management with simulated Google Sheets sync.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
