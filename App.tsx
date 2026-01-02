@@ -18,15 +18,16 @@ const App: React.FC = () => {
   const [activeMnemonic, setActiveMnemonic] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [syncDiagnostic, setSyncDiagnostic] = useState<string>(''); // For troubleshooting
   const hasAttemptedInitialSync = useRef(false);
 
   const clearMemoryAndCache = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY_ITEMS);
     localStorage.removeItem(STORAGE_KEY_ORDERS);
-    // Note: We don't remove webhook url so the user doesn't have to re-paste it after verification
     setItems([]);
     setOrders([]);
     setLastSync(null);
+    setSyncDiagnostic('Memory Reset: Database cleared.');
   }, []);
 
   useEffect(() => {
@@ -50,65 +51,77 @@ const App: React.FC = () => {
     const url = targetUrl || webhookUrl;
     if (!url) return;
     setIsLoadingItems(true);
+    setSyncDiagnostic('Sync initiated: Connecting to Google Apps Script...');
     try {
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 10000);
+      const id = setTimeout(() => controller.abort(), 12000);
       
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(id);
       
       const data = await response.json();
+      console.log('Sync Response Payload:', data);
       
       let rawItems = [];
       let rawOrders = [];
 
+      // Flexible extraction to handle various Apps Script response formats
       if (Array.isArray(data)) {
         rawItems = data;
       } else if (data && typeof data === 'object') {
-        // Source of Truth: Data from the "Inventory" calculated sheet in Apps Script
-        rawItems = data.Inventory || data.inventory || data.items || [];
-        rawOrders = data.Orders || data.orders || [];
+        rawItems = data.Inventory || data.inventory || data.items || data.Items || [];
+        rawOrders = data.Orders || data.orders || data.Order_Log || [];
       }
 
+      // 1. Map Inventory Items
       const mappedItems: Item[] = (rawItems || []).map((it: any, idx: number) => ({
-        id: it.id || it.mnemonic || it.Mnemonic || `sync-item-${idx}`,
+        id: it.id || it.mnemonic || it.Mnemonic || `item-${idx}`,
         category: it.category || it.Category || 'General',
         name: it.name || it.itemName || it.ItemName || 'Unknown Item',
         price: parseFloat(it.price || it.Price || 0),
-        // Source of Truth for Balance: Mapping "quantity" field from Inventory sheet
         quantity: parseInt(it.quantity !== undefined ? it.quantity : (it.AvailableBalance !== undefined ? it.AvailableBalance : (it.Balance || 0))),
         mnemonic: (String(it.mnemonic || it.Mnemonic || '')).toUpperCase(),
-        order: idx,
+        order: it.order !== undefined ? it.order : idx,
         allowUpsell: isTruthy(it.allowUpsell || it.AllowUpsell)
       }));
 
-      const mappedOrders: Order[] = (rawOrders || []).map((o: any, idx: number) => ({
-        id: o.id || o.OrderID || o.orderId || `sync-order-${idx}`,
-        orderId: o.OrderID || o.orderId || o.id || 'N/A',
-        itemId: o.itemId || '',
-        itemName: o.ItemName || o.itemName || 'Unknown Item',
-        mnemonic: (String(o.Mnemonic || o.mnemonic || 'N/A')).toUpperCase(),
-        buyerName: o.Buyer || o.buyerName || 'Guest',
-        buyerEmail: o.Email || o.buyerEmail || '-',
-        quantity: parseInt(o.Quantity || o.quantity || 0),
-        address: o.Address || o.address || '-',
-        timestamp: o.Timestamp || o.timestamp || new Date().toISOString(),
-        status: (String(o.Status || o.AppStatus || o.status || 'confirmed')).toLowerCase().includes('waitlist') ? 'waitlisted' : 'confirmed'
-      }));
+      // 2. Map Orders with robust key detection and valid ID fallback
+      const mappedOrders: Order[] = (rawOrders || [])
+        .filter((o: any) => (o.OrderID || o.orderId || o.Mnemonic || o.mnemonic)) // Filter out empty spreadsheet rows
+        .map((o: any, idx: number) => {
+          const orderId = String(o.OrderID || o.orderId || o.id || `SYNC-${idx}`);
+          return {
+            id: o.id || `${orderId}-${idx}`,
+            orderId: orderId,
+            itemId: o.itemId || '',
+            itemName: o.ItemName || o.itemName || 'Item',
+            mnemonic: (String(o.Mnemonic || o.mnemonic || 'N/A')).toUpperCase(),
+            buyerName: o.Buyer || o.buyerName || 'Guest',
+            buyerEmail: o.Email || o.buyerEmail || '-',
+            quantity: parseInt(o.Quantity || o.quantity || 0),
+            address: o.Address || o.address || '-',
+            timestamp: o.Timestamp || o.timestamp || new Date().toISOString(),
+            status: (String(o.Status || o.AppStatus || o.status || 'confirmed')).toLowerCase().includes('waitlist') ? 'waitlisted' : 'confirmed'
+          };
+        });
       
       setItems(mappedItems);
       setOrders(mappedOrders);
       localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(mappedItems));
       localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(mappedOrders));
 
-      setLastSync(new Intl.DateTimeFormat('en-GB', { 
+      const timeStr = new Intl.DateTimeFormat('en-GB', { 
         timeZone: 'Asia/Singapore', 
         hour: '2-digit', 
         minute: '2-digit', 
         second: '2-digit' 
-      }).format(new Date()));
-    } catch (e) {
+      }).format(new Date());
+      
+      setLastSync(timeStr);
+      setSyncDiagnostic(`Success: ${mappedItems.length} items & ${mappedOrders.length} orders found.`);
+    } catch (e: any) {
       console.error("Fetch failed", e);
+      setSyncDiagnostic(`Error: ${e.message}. Check if Script is public and Tab names are correct.`);
     } finally {
       setIsLoadingItems(false);
       hasAttemptedInitialSync.current = true;
@@ -170,7 +183,8 @@ const App: React.FC = () => {
               Price: i.price,
               InitialQuantity: i.quantity,
               Mnemonic: i.mnemonic,
-              AllowUpsell: !!i.allowUpsell
+              AllowUpsell: !!i.allowUpsell,
+              order: i.order
             })),
             Orders: newOrders.map(o => ({
               OrderID: o.orderId,
@@ -231,6 +245,7 @@ const App: React.FC = () => {
             onManualSync={async () => { await fetchInventoryFromSheets(); }}
             onTestSync={async () => { await fetchInventoryFromSheets(); }}
             onResetCache={clearMemoryAndCache}
+            syncDiagnostic={syncDiagnostic}
           />
         ) : (
           <BuyerPortal 
