@@ -10,7 +10,6 @@ import {
   ChartBarIcon, 
   QrCodeIcon, 
   TrashIcon,
-  ArrowUpTrayIcon,
   Cog6ToothIcon,
   Bars3Icon,
   XMarkIcon,
@@ -40,6 +39,7 @@ interface Props {
   setWaitlistConfig: (config: WaitlistConfig) => void;
   onManualSync: () => Promise<void>;
   onTestSync: () => Promise<void>;
+  onResetCache: () => void;
 }
 
 interface GroupedOrder {
@@ -66,18 +66,17 @@ const SellerDashboard: React.FC<Props> = ({
   waitlistConfig, 
   setWaitlistConfig,
   onManualSync,
-  onTestSync
+  onTestSync,
+  onResetCache
 }) => {
-  // Always start with settings if no webhook
-  const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'viz' | 'add' | 'settings'>(webhookUrl ? 'inventory' : 'settings');
+  // Always start with settings tab as requested
+  const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'viz' | 'add' | 'settings'>('settings');
   const [selectedMnemonic, setSelectedMnemonic] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [hasVerifiedOnce, setHasVerifiedOnce] = useState(!!webhookUrl);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
-  
-  // Filtering for orders
   const [orderFilterMode, setOrderFilterMode] = useState<'all' | 'waitlisted'>('all');
 
   const handleTabClick = async (tab: any) => {
@@ -86,13 +85,6 @@ const SellerDashboard: React.FC<Props> = ({
       handleManualSync();
     }
   };
-
-  useEffect(() => {
-    if (!webhookUrl) {
-      setActiveTab('settings');
-      setHasVerifiedOnce(false);
-    }
-  }, [webhookUrl]);
 
   const isLocked = !webhookUrl;
 
@@ -189,14 +181,39 @@ const SellerDashboard: React.FC<Props> = ({
 
   const handleTestConnection = async () => {
     setIsTesting(true);
+    // Request: Clear cache and related memory every time the verify hub button is pressed
+    onResetCache(); 
     try {
       await onTestSync();
       setHasVerifiedOnce(true);
       setActiveTab('inventory');
     } catch (e) {
-      alert("Verification failed. Please check the URL and ensure the Script is deployed properly.");
+      alert("Cloud Verification failed. Please check the URL and ensure the Script is deployed properly.");
     } finally {
       setIsTesting(false);
+    }
+  };
+
+  const handleDragStart = (index: number) => setDraggedIndex(index);
+  const handleDragOver = (e: React.DragEvent, index: number) => e.preventDefault();
+  const handleDrop = (index: number) => {
+    if (draggedIndex === null || draggedIndex === index) return;
+    const sortedItems = [...items].sort((a, b) => a.order - b.order);
+    const draggedItem = sortedItems[draggedIndex];
+    sortedItems.splice(draggedIndex, 1);
+    sortedItems.splice(index, 0, draggedItem);
+    const updatedItems = sortedItems.map((item, idx) => ({ ...item, order: idx }));
+    setItems(updatedItems);
+    setDraggedIndex(null);
+  };
+
+  const toggleUpsell = (id: string) => {
+    setItems(items.map(i => i.id === id ? { ...i, allowUpsell: !i.allowUpsell } : i));
+  };
+
+  const deleteItem = (id: string) => {
+    if (confirm("Delete this inventory item?")) {
+      setItems(items.filter(i => i.id !== id));
     }
   };
 
@@ -207,17 +224,11 @@ const SellerDashboard: React.FC<Props> = ({
   };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => alert("Link copied to clipboard."));
-  };
-
-  const deleteItem = (id: string) => {
-    if (confirm("Delete this inventory item?")) {
-      setItems(items.filter(i => i.id !== id));
-    }
+    navigator.clipboard.writeText(text).then(() => alert("Selling link copied."));
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       {selectedMnemonic && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-md" onClick={() => setSelectedMnemonic(null)}></div>
@@ -265,10 +276,10 @@ const SellerDashboard: React.FC<Props> = ({
                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Selling Database</h3>
                    {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Stock tracked from Google Sheet Master</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Stock tracked from Master Inventory Sheet</p>
               </div>
               <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
-                <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Feed
+                <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Cloud Data
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -278,22 +289,31 @@ const SellerDashboard: React.FC<Props> = ({
                     <th className="px-4 py-4 w-10 text-center">#</th>
                     <th className="px-6 py-4">Mnemonic</th>
                     <th className="px-6 py-4">Item Name</th>
-                    <th className="px-6 py-4 text-center">Available Stock</th>
+                    <th className="px-6 py-4 text-center">Stock Balance</th>
+                    <th className="px-6 py-4 text-center">Offer After?</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {items.length === 0 ? (
-                    <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-300 font-black uppercase text-[10px]">No inventory synced. Click Refresh.</td></tr>
-                  ) : items.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50 group transition-colors">
-                      <td className="px-4 py-5 font-bold text-slate-200">{idx + 1}</td>
+                    <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-300 font-black uppercase text-[10px]">Database Empty. Syncing required.</td></tr>
+                  ) : [...items].sort((a,b) => a.order - b.order).map((item, idx) => (
+                    <tr key={item.id} 
+                      draggable 
+                      onDragStart={() => handleDragStart(idx)} 
+                      onDragOver={(e) => handleDragOver(e, idx)} 
+                      onDrop={() => handleDrop(idx)} 
+                      className={`hover:bg-slate-50/50 group transition-colors ${draggedIndex === idx ? 'opacity-30 bg-indigo-50 shadow-inner' : ''}`}>
+                      <td className="px-4 py-5"><Bars3Icon className="w-5 h-5 cursor-grab text-slate-200 group-hover:text-indigo-400" /></td>
                       <td className="px-6 py-5"><button onClick={() => setSelectedMnemonic(item.mnemonic)} className="text-indigo-600 font-black bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 font-mono text-xs">{item.mnemonic}</button></td>
                       <td className="px-6 py-5 font-bold text-slate-800">{item.name}</td>
                       <td className="px-6 py-5 text-center"><span className={`px-4 py-2 rounded-xl text-[10px] font-black border uppercase ${item.quantity > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'}`}>{item.quantity} units</span></td>
+                      <td className="px-6 py-5 text-center">
+                         <input type="checkbox" checked={!!item.allowUpsell} onChange={() => toggleUpsell(item.id)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                      </td>
                       <td className="px-6 py-5 text-right flex justify-end gap-2">
-                        <button onClick={() => setSelectedMnemonic(item.mnemonic)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl"><QrCodeIcon className="w-5 h-5" /></button>
-                        <button onClick={() => deleteItem(item.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl"><TrashIcon className="w-5 h-5" /></button>
+                        <button onClick={() => setSelectedMnemonic(item.mnemonic)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"><QrCodeIcon className="w-5 h-5" /></button>
+                        <button onClick={() => deleteItem(item.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"><TrashIcon className="w-5 h-5" /></button>
                       </td>
                     </tr>
                   ))}
@@ -326,7 +346,7 @@ const SellerDashboard: React.FC<Props> = ({
                     <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'waitlisted' ? 'text-amber-100' : 'text-slate-400'}`}>Waitlist Triggered</p>
                     <p className="text-3xl font-black">{uniqueWaitlistOrderCount}</p>
                   </div>
-                  <div className={`p-4 rounded-2xl ${orderFilterMode === 'waitlisted' ? 'bg-white/10' : 'bg-slate-50 text-slate-300 group-hover:text-amber-500'}`}><ClockIcon className="w-8 h-8" /></div>
+                  <div className={`p-4 rounded-2xl ${orderFilterMode === 'waitlisted' ? 'bg-white/10' : 'bg-slate-50 text-slate-300 group-hover:text-amber-500'}`}><ExclamationCircleIcon className="w-8 h-8" /></div>
                </button>
 
                <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
@@ -346,14 +366,14 @@ const SellerDashboard: React.FC<Props> = ({
                     <DocumentDuplicateIcon className="w-4 h-4 text-indigo-500" />
                     {orderFilterMode === 'all' ? 'Live Order Feed' : 'Waitlist Priority View'}
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Sourced from "Orders" sheet. Expand for line items.</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Sourced from cloud "Orders" tab.</p>
                 </div>
                 <div className="flex gap-2">
                   {orderFilterMode !== 'all' && (
                     <button onClick={() => setOrderFilterMode('all')} className="text-[9px] font-black text-indigo-600 uppercase underline mr-4">Clear Filter</button>
                   )}
                   <button onClick={handleManualSync} disabled={isSyncing} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100">
-                    <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Sync
+                    <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Orders
                   </button>
                 </div>
               </div>
@@ -373,7 +393,7 @@ const SellerDashboard: React.FC<Props> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={8} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Accessing Google Sheets...' : 'No orders found matching this filter.'}</td></tr>
+                      <tr><td colSpan={8} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Accessing Google Sheets...' : 'No orders found.'}</td></tr>
                     ) : (
                       filteredOrders.map((group) => {
                         const isExpanded = expandedOrderIds.has(group.orderId);
@@ -391,7 +411,7 @@ const SellerDashboard: React.FC<Props> = ({
                                 <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border shadow-sm ${
                                   group.overallStatus === 'confirmed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
                                   group.overallStatus === 'mixed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
-                                  'bg-amber-50 text-amber-700 border-amber-200 animate-pulse'
+                                  'bg-amber-50 text-amber-700 border-amber-200'
                                 }`}>
                                   {group.overallStatus}
                                 </span>
@@ -441,21 +461,21 @@ const SellerDashboard: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* ITEM-WISE STOCK BALANCE (Requested below transactions) */}
+            {/* ITEM-WISE STOCK BALANCE LIST (Requested: Below Live Transactions) */}
             <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in fade-in slide-in-from-bottom-6 duration-500">
                <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30">
                   <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs flex items-center gap-2">
                     <TagIcon className="w-4 h-4 text-emerald-500" />
-                    Real-Time Itemized Stock Balance
+                    Itemized Stock Balance (Cloud Engine Source)
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Sourced directly from Google Sheet "Inventory" calculation.</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Real-time units remaining according to the Google Sheet Inventory sheet.</p>
                </div>
                <div className="p-6">
                   {items.length === 0 ? (
-                    <div className="text-center py-8 text-slate-300 font-black text-[10px] uppercase">No data found in Master Inventory.</div>
+                    <div className="text-center py-8 text-slate-300 font-black text-[10px] uppercase">No Inventory Data Available. Sync your Hub.</div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {items.map(item => (
+                      {[...items].sort((a,b) => a.order - b.order).map(item => (
                         <div key={item.id} className="bg-slate-50 border border-slate-100 p-5 rounded-3xl flex flex-col justify-between hover:border-emerald-200 transition-all hover:bg-emerald-50/20 group relative overflow-hidden">
                            <div className="mb-4">
                               <p className="text-[10px] font-mono text-indigo-400 font-black tracking-wider uppercase mb-1">#{item.mnemonic}</p>
@@ -470,8 +490,7 @@ const SellerDashboard: React.FC<Props> = ({
                                  {item.quantity > 5 ? 'Healthy' : item.quantity > 0 ? 'Low Stock' : 'Empty'}
                               </div>
                            </div>
-                           {/* Tiny progress bar visualization */}
-                           <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 transition-all" style={{ width: `${Math.min(100, (item.quantity / 20) * 100)}%` }}></div>
+                           <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 transition-all opacity-20" style={{ width: `${Math.min(100, (item.quantity / 20) * 100)}%` }}></div>
                         </div>
                       ))}
                     </div>
@@ -490,10 +509,10 @@ const SellerDashboard: React.FC<Props> = ({
 
         {activeTab === 'add' && (
           <section className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm animate-in slide-in-from-bottom-4 duration-300 max-w-4xl mx-auto">
-            <h3 className="font-black text-slate-900 mb-8 flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className="bg-indigo-600 text-white p-2 rounded-xl"><PlusCircleIcon className="w-5 h-5" /></span> Master Inventory Entry</h3>
+            <h3 className="font-black text-slate-900 mb-8 flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className="bg-indigo-600 text-white p-2 rounded-xl"><PlusCircleIcon className="w-5 h-5" /></span> Inventory Entry Center</h3>
             <InventoryInput 
               onAdd={(item) => {
-                const newItem = { ...item, id: Date.now().toString(), order: items.length } as Item;
+                const newItem = { ...item, id: Date.now().toString(), order: items.length, allowUpsell: false } as Item;
                 setItems([...items, newItem]);
                 setActiveTab('inventory');
               }} 
@@ -510,7 +529,7 @@ const SellerDashboard: React.FC<Props> = ({
           <section className="bg-slate-900 p-12 rounded-[3rem] text-white shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
             {!webhookUrl && <div className="absolute top-0 left-0 w-full bg-indigo-600/20 py-2 text-center text-[10px] font-black uppercase tracking-[0.2em] border-b border-indigo-500/30 animate-pulse">Configuration Required: Paste your Apps Script Web App URL</div>}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6 mt-4">
-              <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${!webhookUrl ? 'bg-amber-500 text-white' : 'bg-white/10 text-indigo-400'}`}>{!webhookUrl ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {webhookUrl ? 'Cloud Connection Active' : 'Setup Cloud Sync'}</h3>
+              <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${!webhookUrl ? 'bg-amber-500 text-white' : 'bg-white/10 text-indigo-400'}`}>{!webhookUrl ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {webhookUrl ? 'Hub Link Active' : 'Initialize Hub Connection'}</h3>
             </div>
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-12">
               <div className="space-y-10">
@@ -520,11 +539,12 @@ const SellerDashboard: React.FC<Props> = ({
                     <input type="text" placeholder="https://script.google.com/macros/s/.../exec" value={webhookUrl} onChange={(e) => { onWebhookChange(e.target.value); setHasVerifiedOnce(false); }} className="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 text-sm text-indigo-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium backdrop-blur-sm" />
                     <button onClick={handleTestConnection} disabled={isTesting || !webhookUrl} className={`p-5 rounded-2xl transition-all min-w-[140px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest ${isTesting ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/40'}`}>{isTesting ? <WifiIcon className="w-5 h-5 animate-ping" /> : <><WifiIcon className="w-5 h-5" /> Verify Hub</>}</button>
                   </div>
+                  <p className="text-[9px] text-slate-500 mt-4 uppercase font-bold tracking-widest leading-relaxed">Note: Verifying Hub will clear local browser cache and memory to ensure fresh synchronization with your cloud data.</p>
                 </div>
               </div>
               <div className="space-y-12">
                 <div className="bg-slate-800/20 p-8 rounded-[2rem] border border-slate-700/30">
-                  <div className="flex justify-between items-center mb-6"><label className="text-[10px] text-slate-400 uppercase font-black tracking-[0.2em]">Waitlist Threshold</label><span className="bg-indigo-500/10 text-indigo-400 px-5 py-2 rounded-full text-[10px] font-black border border-indigo-500/30">{waitlistConfig.maxSize} SLOTS</span></div>
+                  <div className="flex justify-between items-center mb-6"><label className="text-[10px] text-slate-400 uppercase font-black tracking-[0.2em]">Waitlist Capacity Threshold</label><span className="bg-indigo-500/10 text-indigo-400 px-5 py-2 rounded-full text-[10px] font-black border border-indigo-500/30">{waitlistConfig.maxSize} SLOTS</span></div>
                   <input type="range" min="0" max="100" value={waitlistConfig.maxSize} onChange={(e) => setWaitlistConfig({ maxSize: parseInt(e.target.value) })} className="w-full accent-indigo-500 h-2 bg-slate-800 rounded-full appearance-none cursor-pointer" />
                 </div>
               </div>
