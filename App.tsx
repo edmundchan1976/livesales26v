@@ -14,7 +14,7 @@ const App: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [waitlistConfig, setWaitlistConfig] = useState<WaitlistConfig>({ maxSize: 5 });
   const [webhookUrl, setWebhookUrl] = useState<string>(localStorage.getItem(STORAGE_KEY_WEBHOOK) || '');
-  const [view, setView] = useState<ViewMode>('seller');
+  const [view, setView] = useState('seller');
   const [activeMnemonic, setActiveMnemonic] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
@@ -59,8 +59,20 @@ const App: React.FC = () => {
       clearTimeout(id);
       
       const data = await response.json();
+      
+      // Support both array response (legacy) and object response (new)
+      let rawItems = [];
+      let rawOrders = [];
+
       if (Array.isArray(data)) {
-        const mappedItems: Item[] = data.map((it: any, idx: number) => ({
+        rawItems = data;
+      } else if (data && typeof data === 'object') {
+        rawItems = data.Inventory || data.items || [];
+        rawOrders = data.Orders || data.orders || [];
+      }
+
+      if (rawItems.length > 0) {
+        const mappedItems: Item[] = rawItems.map((it: any, idx: number) => ({
           id: it.id || it.mnemonic || `sync-${idx}`,
           category: it.category || 'General',
           name: it.name || 'Unknown Item',
@@ -73,13 +85,33 @@ const App: React.FC = () => {
         setItems(mappedItems);
         localStorage.setItem(STORAGE_KEY_ITEMS, JSON.stringify(mappedItems));
       }
+
+      if (rawOrders.length > 0) {
+        const mappedOrders: Order[] = rawOrders.map((o: any) => ({
+          id: o.id || o.orderId || Math.random().toString(),
+          orderId: o.orderId || o.OrderID,
+          itemId: o.itemId || items.find(i => i.mnemonic === o.Mnemonic)?.id || '',
+          itemName: o.itemName || o.ItemName,
+          mnemonic: o.mnemonic || o.Mnemonic,
+          buyerName: o.buyerName || o.Buyer,
+          buyerEmail: o.buyerEmail || o.Email,
+          quantity: parseInt(o.quantity || o.Quantity),
+          address: o.address || o.Address,
+          timestamp: o.timestamp || o.Timestamp,
+          status: (o.status || o.AppStatus || 'confirmed').toLowerCase() === 'waitlisted' ? 'waitlisted' : 'confirmed'
+        }));
+        setOrders(mappedOrders);
+        localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(mappedOrders));
+      }
+
+      setLastSync(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date()));
     } catch (e) {
       console.error("Fetch failed", e);
     } finally {
       setIsLoadingItems(false);
       hasAttemptedInitialSync.current = true;
     }
-  }, [webhookUrl]);
+  }, [webhookUrl, items]);
 
   useEffect(() => {
     const handleNavigation = async () => {
@@ -190,7 +222,7 @@ const App: React.FC = () => {
           <div className="flex gap-4 items-center">
             {lastSync && (
               <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-100">
-                <span className="text-[9px] font-black uppercase tracking-widest">SGT: {lastSync}</span>
+                <span className="text-[9px] font-black uppercase tracking-widest">SGT SYNC: {lastSync}</span>
               </div>
             )}
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -209,7 +241,7 @@ const App: React.FC = () => {
             setOrders={(newOrders) => saveAndSync(items, newOrders)}
             waitlistConfig={waitlistConfig}
             setWaitlistConfig={(c) => { setWaitlistConfig(c); localStorage.setItem(STORAGE_KEY_WAITLIST, JSON.stringify(c)); }}
-            onManualSync={async () => { await pushToGoogleSheets(items, orders); }}
+            onManualSync={async () => { await fetchInventoryFromSheets(); }}
             onTestSync={async () => { 
               const success = await pushToGoogleSheets(items, orders, true); 
               if (success) {
