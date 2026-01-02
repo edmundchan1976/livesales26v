@@ -68,6 +68,7 @@ const SellerDashboard: React.FC<Props> = ({
   onManualSync,
   onTestSync
 }) => {
+  // Always start with settings if no webhook
   const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'viz' | 'add' | 'settings'>(webhookUrl ? 'inventory' : 'settings');
   const [selectedMnemonic, setSelectedMnemonic] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -75,6 +76,8 @@ const SellerDashboard: React.FC<Props> = ({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [hasVerifiedOnce, setHasVerifiedOnce] = useState(!!webhookUrl);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
+  
+  // Filtering for orders
   const [orderFilterMode, setOrderFilterMode] = useState<'all' | 'waitlisted'>('all');
 
   const handleTabClick = async (tab: any) => {
@@ -191,7 +194,7 @@ const SellerDashboard: React.FC<Props> = ({
       setHasVerifiedOnce(true);
       setActiveTab('inventory');
     } catch (e) {
-      alert("Verification failed.");
+      alert("Verification failed. Please check the URL and ensure the Script is deployed properly.");
     } finally {
       setIsTesting(false);
     }
@@ -204,7 +207,13 @@ const SellerDashboard: React.FC<Props> = ({
   };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => alert("Link copied."));
+    navigator.clipboard.writeText(text).then(() => alert("Link copied to clipboard."));
+  };
+
+  const deleteItem = (id: string) => {
+    if (confirm("Delete this inventory item?")) {
+      setItems(items.filter(i => i.id !== id));
+    }
   };
 
   return (
@@ -256,10 +265,10 @@ const SellerDashboard: React.FC<Props> = ({
                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Selling Database</h3>
                    {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Stock tracked from Google Sheet</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Stock tracked from Google Sheet Master</p>
               </div>
               <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
-                <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh
+                <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Feed
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -269,18 +278,23 @@ const SellerDashboard: React.FC<Props> = ({
                     <th className="px-4 py-4 w-10 text-center">#</th>
                     <th className="px-6 py-4">Mnemonic</th>
                     <th className="px-6 py-4">Item Name</th>
-                    <th className="px-6 py-4 text-center">In Stock</th>
+                    <th className="px-6 py-4 text-center">Available Stock</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {items.map((item, idx) => (
+                  {items.length === 0 ? (
+                    <tr><td colSpan={5} className="px-6 py-12 text-center text-slate-300 font-black uppercase text-[10px]">No inventory synced. Click Refresh.</td></tr>
+                  ) : items.map((item, idx) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 group transition-colors">
-                      <td className="px-4 py-5"><Bars3Icon className="w-5 h-5 cursor-grab text-slate-200" /></td>
+                      <td className="px-4 py-5 font-bold text-slate-200">{idx + 1}</td>
                       <td className="px-6 py-5"><button onClick={() => setSelectedMnemonic(item.mnemonic)} className="text-indigo-600 font-black bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 font-mono text-xs">{item.mnemonic}</button></td>
                       <td className="px-6 py-5 font-bold text-slate-800">{item.name}</td>
                       <td className="px-6 py-5 text-center"><span className={`px-4 py-2 rounded-xl text-[10px] font-black border uppercase ${item.quantity > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'}`}>{item.quantity} units</span></td>
-                      <td className="px-6 py-5 text-right"><button onClick={() => setSelectedMnemonic(item.mnemonic)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl"><QrCodeIcon className="w-5 h-5" /></button></td>
+                      <td className="px-6 py-5 text-right flex justify-end gap-2">
+                        <button onClick={() => setSelectedMnemonic(item.mnemonic)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl"><QrCodeIcon className="w-5 h-5" /></button>
+                        <button onClick={() => deleteItem(item.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl"><TrashIcon className="w-5 h-5" /></button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -291,14 +305,14 @@ const SellerDashboard: React.FC<Props> = ({
 
         {activeTab === 'orders' && (
           <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
-            {/* Clickable Metric Summary Cards */}
+            {/* Clickable Summary Metric Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                <button 
                   onClick={() => setOrderFilterMode('all')}
                   className={`p-6 rounded-[2.5rem] border transition-all text-left flex items-center justify-between group ${orderFilterMode === 'all' ? 'bg-indigo-600 border-indigo-500 shadow-xl shadow-indigo-100 text-white' : 'bg-white border-slate-200 text-slate-900 shadow-sm hover:border-indigo-300'}`}
                >
                   <div>
-                    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'all' ? 'text-indigo-200' : 'text-slate-400'}`}>Total Active Sessions</p>
+                    <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'all' ? 'text-indigo-200' : 'text-slate-400'}`}>Total Orders</p>
                     <p className="text-3xl font-black">{uniqueOrderCount}</p>
                   </div>
                   <div className={`p-4 rounded-2xl ${orderFilterMode === 'all' ? 'bg-white/10' : 'bg-slate-50 text-slate-300'}`}><UserGroupIcon className="w-8 h-8" /></div>
@@ -312,12 +326,12 @@ const SellerDashboard: React.FC<Props> = ({
                     <p className={`text-[9px] font-black uppercase tracking-widest mb-1 ${orderFilterMode === 'waitlisted' ? 'text-amber-100' : 'text-slate-400'}`}>Waitlist Triggered</p>
                     <p className="text-3xl font-black">{uniqueWaitlistOrderCount}</p>
                   </div>
-                  <div className={`p-4 rounded-2xl ${orderFilterMode === 'waitlisted' ? 'bg-white/10' : 'bg-slate-50 text-slate-300'}`}><ExclamationCircleIcon className="w-8 h-8" /></div>
+                  <div className={`p-4 rounded-2xl ${orderFilterMode === 'waitlisted' ? 'bg-white/10' : 'bg-slate-50 text-slate-300 group-hover:text-amber-500'}`}><ClockIcon className="w-8 h-8" /></div>
                </button>
 
                <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center justify-between">
                   <div>
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Stock Count</p>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Hub Stock</p>
                     <p className="text-3xl font-black text-slate-900">{totalBalance} units</p>
                   </div>
                   <div className="p-4 bg-emerald-50 rounded-2xl text-emerald-500"><CheckBadgeIcon className="w-8 h-8" /></div>
@@ -328,14 +342,20 @@ const SellerDashboard: React.FC<Props> = ({
             <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
                <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
                 <div>
-                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">
-                     {orderFilterMode === 'all' ? 'Live Transactions' : 'Filtered: Waitlisted Orders'}
+                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs flex items-center gap-2">
+                    <DocumentDuplicateIcon className="w-4 h-4 text-indigo-500" />
+                    {orderFilterMode === 'all' ? 'Live Order Feed' : 'Waitlist Priority View'}
                   </h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Click row to expand details.</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Sourced from "Orders" sheet. Expand for line items.</p>
                 </div>
-                <button onClick={handleManualSync} disabled={isSyncing} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100">
-                  <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Feed
-                </button>
+                <div className="flex gap-2">
+                  {orderFilterMode !== 'all' && (
+                    <button onClick={() => setOrderFilterMode('all')} className="text-[9px] font-black text-indigo-600 uppercase underline mr-4">Clear Filter</button>
+                  )}
+                  <button onClick={handleManualSync} disabled={isSyncing} className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-indigo-100">
+                    <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Sync
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left border-collapse">
@@ -346,14 +366,14 @@ const SellerDashboard: React.FC<Props> = ({
                       <th className="px-6 py-4">Time (SGT)</th>
                       <th className="px-6 py-4">Buyer</th>
                       <th className="px-6 py-4 text-center">Items</th>
-                      <th className="px-6 py-4 text-center">Qty</th>
-                      <th className="px-6 py-4 text-right">Cost</th>
+                      <th className="px-6 py-4 text-center">Total Qty</th>
+                      <th className="px-6 py-4 text-right">Revenue</th>
                       <th className="px-6 py-4 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={8} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Syncing...' : 'No data found'}</td></tr>
+                      <tr><td colSpan={8} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Accessing Google Sheets...' : 'No orders found matching this filter.'}</td></tr>
                     ) : (
                       filteredOrders.map((group) => {
                         const isExpanded = expandedOrderIds.has(group.orderId);
@@ -383,10 +403,10 @@ const SellerDashboard: React.FC<Props> = ({
                                   <table className="w-full text-[11px]">
                                     <thead className="text-slate-400 uppercase font-bold border-b border-slate-100">
                                       <tr>
-                                        <th className="text-left py-3">Item</th>
-                                        <th className="text-center py-3">Qty</th>
+                                        <th className="text-left py-3">Item Detail</th>
+                                        <th className="text-center py-3">Qty Ordered</th>
                                         <th className="text-center py-3">Cloud Balance</th>
-                                        <th className="text-center py-3">Status</th>
+                                        <th className="text-center py-3">Outcome</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100/50">
@@ -394,11 +414,13 @@ const SellerDashboard: React.FC<Props> = ({
                                         const balance = itemStockMap.get(line.mnemonic.toUpperCase()) ?? '??';
                                         return (
                                           <tr key={idx} className="text-slate-600">
-                                            <td className="py-4 font-black text-slate-800">{line.itemName} <span className="text-indigo-400 font-mono text-[9px]">#{line.mnemonic}</span></td>
+                                            <td className="py-4 font-black text-slate-800">
+                                              {line.itemName} <span className="text-indigo-400 font-mono text-[9px] ml-1">#{line.mnemonic}</span>
+                                            </td>
                                             <td className="py-4 text-center font-black text-lg">{line.quantity}</td>
                                             <td className="py-4 text-center">
                                                <span className={`px-3 py-1 rounded-full font-black text-[9px] border ${typeof balance === 'number' && balance <= 0 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                                                 {balance} units
+                                                 {balance} units remaining
                                                </span>
                                             </td>
                                             <td className="py-4 text-center"><span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${line.status === 'confirmed' ? 'text-emerald-500 border-emerald-100 bg-emerald-50/50' : 'text-amber-500 border-amber-100 bg-amber-50/50'}`}>{line.status}</span></td>
@@ -419,42 +441,95 @@ const SellerDashboard: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* NEW SECTION: Itemized Stock Balance List (requested below transactions) */}
-            <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm">
+            {/* ITEM-WISE STOCK BALANCE (Requested below transactions) */}
+            <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in fade-in slide-in-from-bottom-6 duration-500">
                <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30">
                   <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs flex items-center gap-2">
                     <TagIcon className="w-4 h-4 text-emerald-500" />
                     Real-Time Itemized Stock Balance
                   </h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Sourced directly from Google Sheet "Inventory" calculation.</p>
                </div>
-               <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {items.map(item => (
-                    <div key={item.id} className="bg-slate-50 border border-slate-100 p-5 rounded-3xl flex flex-col justify-between hover:border-emerald-200 transition-all hover:bg-emerald-50/20 group">
-                       <div className="mb-3">
-                          <p className="text-[10px] font-mono text-indigo-400 font-black tracking-wider uppercase mb-1">#{item.mnemonic}</p>
-                          <h4 className="font-black text-slate-800 text-sm leading-tight">{item.name}</h4>
-                       </div>
-                       <div className="flex justify-between items-end">
-                          <div className="flex flex-col">
-                             <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Balance</span>
-                             <span className={`text-xl font-black ${item.quantity <= 0 ? 'text-rose-500' : 'text-slate-900'}`}>{item.quantity} units</span>
-                          </div>
-                          <div className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase ${item.quantity > 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                             {item.quantity > 5 ? 'OK' : 'Low'}
-                          </div>
-                       </div>
+               <div className="p-6">
+                  {items.length === 0 ? (
+                    <div className="text-center py-8 text-slate-300 font-black text-[10px] uppercase">No data found in Master Inventory.</div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {items.map(item => (
+                        <div key={item.id} className="bg-slate-50 border border-slate-100 p-5 rounded-3xl flex flex-col justify-between hover:border-emerald-200 transition-all hover:bg-emerald-50/20 group relative overflow-hidden">
+                           <div className="mb-4">
+                              <p className="text-[10px] font-mono text-indigo-400 font-black tracking-wider uppercase mb-1">#{item.mnemonic}</p>
+                              <h4 className="font-black text-slate-800 text-sm leading-tight group-hover:text-slate-950">{item.name}</h4>
+                           </div>
+                           <div className="flex justify-between items-end">
+                              <div className="flex flex-col">
+                                 <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">Current Balance</span>
+                                 <span className={`text-2xl font-black ${item.quantity <= 0 ? 'text-rose-500' : 'text-slate-900'}`}>{item.quantity}</span>
+                              </div>
+                              <div className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase ${item.quantity > 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                 {item.quantity > 5 ? 'Healthy' : item.quantity > 0 ? 'Low Stock' : 'Empty'}
+                              </div>
+                           </div>
+                           {/* Tiny progress bar visualization */}
+                           <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 transition-all" style={{ width: `${Math.min(100, (item.quantity / 20) * 100)}%` }}></div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                </div>
             </div>
           </div>
         )}
 
-        {/* Other tabs omitted for brevity but preserved in full app state */}
-        {(activeTab === 'viz' || activeTab === 'add' || activeTab === 'settings') && (
-          <div className="text-center py-24 text-slate-400 font-black uppercase text-xs tracking-widest">
-            {activeTab.toUpperCase()} View is active
+        {activeTab === 'viz' && (
+          <div className="bg-white p-12 rounded-[3rem] border border-slate-200 shadow-sm animate-in slide-in-from-bottom-4 duration-300">
+            <h3 className="font-black text-slate-900 mb-10 uppercase tracking-widest text-xs">Demand vs Priority Visualization</h3>
+            <OrderVisualizer items={items} orders={orders} />
           </div>
+        )}
+
+        {activeTab === 'add' && (
+          <section className="bg-white p-10 rounded-[2.5rem] border border-slate-200 shadow-sm animate-in slide-in-from-bottom-4 duration-300 max-w-4xl mx-auto">
+            <h3 className="font-black text-slate-900 mb-8 flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className="bg-indigo-600 text-white p-2 rounded-xl"><PlusCircleIcon className="w-5 h-5" /></span> Master Inventory Entry</h3>
+            <InventoryInput 
+              onAdd={(item) => {
+                const newItem = { ...item, id: Date.now().toString(), order: items.length } as Item;
+                setItems([...items, newItem]);
+                setActiveTab('inventory');
+              }} 
+              onBulkAdd={(newItems) => {
+                const mapped = newItems.map((ni, idx) => ({ ...ni, id: `bulk-${Date.now()}-${idx}`, mnemonic: ni.mnemonic || (ni.name || 'ITEM').split(' ')[0].toUpperCase().replace(/[^A-Z]/g, '').substring(0, 4) + Math.floor(Math.random() * 90 + 10), order: items.length + idx, allowUpsell: false })) as Item[];
+                setItems([...items, ...mapped]);
+                setActiveTab('inventory');
+              }} 
+            />
+          </section>
+        )}
+
+        {activeTab === 'settings' && (
+          <section className="bg-slate-900 p-12 rounded-[3rem] text-white shadow-2xl relative overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+            {!webhookUrl && <div className="absolute top-0 left-0 w-full bg-indigo-600/20 py-2 text-center text-[10px] font-black uppercase tracking-[0.2em] border-b border-indigo-500/30 animate-pulse">Configuration Required: Paste your Apps Script Web App URL</div>}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6 mt-4">
+              <h3 className="font-black flex items-center gap-4 text-sm uppercase tracking-[0.25em]"><span className={`p-2 rounded-xl transition-colors ${!webhookUrl ? 'bg-amber-500 text-white' : 'bg-white/10 text-indigo-400'}`}>{!webhookUrl ? <LockClosedIcon className="w-5 h-5" /> : <ShieldCheckIcon className="w-5 h-5" />}</span> {webhookUrl ? 'Cloud Connection Active' : 'Setup Cloud Sync'}</h3>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-12">
+              <div className="space-y-10">
+                <div className={`${!hasVerifiedOnce ? 'ring-2 ring-indigo-500 ring-offset-4 ring-offset-slate-900 rounded-3xl p-2' : ''}`}>
+                  <label className="text-[10px] text-slate-400 block mb-4 uppercase font-black tracking-[0.2em]">Google Sheet Apps Script URL</label>
+                  <div className="flex gap-3">
+                    <input type="text" placeholder="https://script.google.com/macros/s/.../exec" value={webhookUrl} onChange={(e) => { onWebhookChange(e.target.value); setHasVerifiedOnce(false); }} className="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 text-sm text-indigo-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium backdrop-blur-sm" />
+                    <button onClick={handleTestConnection} disabled={isTesting || !webhookUrl} className={`p-5 rounded-2xl transition-all min-w-[140px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest ${isTesting ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/40'}`}>{isTesting ? <WifiIcon className="w-5 h-5 animate-ping" /> : <><WifiIcon className="w-5 h-5" /> Verify Hub</>}</button>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-12">
+                <div className="bg-slate-800/20 p-8 rounded-[2rem] border border-slate-700/30">
+                  <div className="flex justify-between items-center mb-6"><label className="text-[10px] text-slate-400 uppercase font-black tracking-[0.2em]">Waitlist Threshold</label><span className="bg-indigo-500/10 text-indigo-400 px-5 py-2 rounded-full text-[10px] font-black border border-indigo-500/30">{waitlistConfig.maxSize} SLOTS</span></div>
+                  <input type="range" min="0" max="100" value={waitlistConfig.maxSize} onChange={(e) => setWaitlistConfig({ maxSize: parseInt(e.target.value) })} className="w-full accent-indigo-500 h-2 bg-slate-800 rounded-full appearance-none cursor-pointer" />
+                </div>
+              </div>
+            </div>
+          </section>
         )}
       </div>
     </div>
