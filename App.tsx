@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Item, Order, ViewMode, WaitlistConfig } from './types';
 import SellerDashboard from './components/SellerDashboard';
@@ -49,7 +48,7 @@ const App: React.FC = () => {
 
   const fetchInventoryFromSheets = useCallback(async (targetUrl?: string) => {
     const rawUrl = targetUrl || webhookUrl;
-    const url = (rawUrl || '').trim(); // Sanitize URL
+    const url = (rawUrl || '').trim();
     
     if (!url || !url.startsWith('http')) {
       setSyncDiagnostic('Wait: Cloud Hub URL is missing or invalid.');
@@ -61,17 +60,14 @@ const App: React.FC = () => {
     
     try {
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 20000); // Increased timeout for slow scripts
+      const id = setTimeout(() => controller.abort(), 20000);
       
-      // Explicitly follow redirects for Google Apps Script
       const response = await fetch(url, { 
         method: 'GET',
         mode: 'cors',
         redirect: 'follow',
         signal: controller.signal,
-        headers: {
-          'Accept': 'application/json'
-        }
+        headers: { 'Accept': 'application/json' }
       });
       clearTimeout(id);
       
@@ -86,40 +82,35 @@ const App: React.FC = () => {
       if (Array.isArray(data)) {
         rawItems = data;
       } else if (data && typeof data === 'object') {
-        // Broad capture to handle inconsistent sheet names
-        rawItems = data.Inventory || data.inventory || data.Items || data.items || data.Master_Inventory || data.MasterInventory || [];
-        rawOrders = data.Orders || data.orders || data.Order_Log || data.OrderLog || [];
+        rawItems = data.Inventory || data.inventory || data.Items || [];
+        rawOrders = data.Orders || data.orders || [];
       }
 
-      // Map Inventory
       const mappedItems: Item[] = (rawItems || []).map((it: any, idx: number) => ({
-        id: it.id || it.mnemonic || it.Mnemonic || `item-${idx}`,
+        id: it.id || it.Mnemonic || it.mnemonic || `item-${idx}`,
         category: it.Category || it.category || 'General',
-        name: it.ItemName || it.itemName || it.Item_Name || it.name || 'Unknown Item',
+        name: it.ItemName || it.itemName || it.name || 'Unknown Item',
         price: parseFloat(it.Price || it.price || 0),
         quantity: parseInt(
           it.AvailableBalance !== undefined ? it.AvailableBalance : 
-          (it.quantity !== undefined ? it.quantity : 
-          (it.Balance !== undefined ? it.Balance : 
-          (it.Quantity !== undefined ? it.Quantity : 0)))
+          (it.InitialQuantity !== undefined ? it.InitialQuantity : 0)
         ),
         mnemonic: (String(it.Mnemonic || it.mnemonic || '')).toUpperCase(),
         order: it.order !== undefined ? it.order : idx,
         allowUpsell: isTruthy(it.AllowUpsell || it.allowUpsell)
       })).filter(it => it.mnemonic);
 
-      // Map Orders
       const mappedOrders: Order[] = (rawOrders || [])
-        .filter((o: any) => o && (o.OrderID || o.orderId || o.Mnemonic || o.mnemonic || o.Buyer || o.buyerName))
+        .filter((o: any) => o && (o.OrderID || o.orderId || o.Mnemonic))
         .map((o: any, idx: number) => {
-          const orderId = String(o.OrderID || o.orderId || o.id || `CLD-${idx}`);
-          const statusRaw = String(o.Status || o.AppStatus || o.appStatus || o.status || 'confirmed').toLowerCase();
+          const orderId = String(o.OrderID || o.orderId || `CLD-${idx}`);
+          const statusRaw = String(o.Status || o.status || 'confirmed').toLowerCase();
           
           return {
-            id: o.id || `${orderId}-${idx}`,
+            id: `${orderId}-${idx}`,
             orderId: orderId,
             itemId: o.itemId || '',
-            itemName: o.ItemName || o.itemName || o.item_name || 'Item',
+            itemName: o.ItemName || o.itemName || 'Item',
             mnemonic: (String(o.Mnemonic || o.mnemonic || 'N/A')).toUpperCase(),
             buyerName: o.Buyer || o.buyerName || 'Guest',
             buyerEmail: o.Email || o.email || '-',
@@ -148,7 +139,7 @@ const App: React.FC = () => {
     } catch (e: any) {
       console.error("Critical Cloud Fetch Failure:", e);
       if (e.name === 'TypeError' || e.message === 'Failed to fetch') {
-        setSyncDiagnostic('CONNECTION_BLOCKED: The browser blocked the Cloud Link. Ensure script is deployed as Web App for "Anyone".');
+        setSyncDiagnostic('CONNECTION_BLOCKED: Ensure script is deployed as Web App for "Anyone".');
       } else {
         setSyncDiagnostic(`Error: ${e.message}`);
       }
