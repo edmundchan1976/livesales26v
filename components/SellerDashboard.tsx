@@ -25,7 +25,8 @@ import {
   ChevronRightIcon,
   ExclamationCircleIcon,
   CheckBadgeIcon,
-  TagIcon
+  TagIcon,
+  InformationCircleIcon
 } from '@heroicons/react/24/outline';
 
 interface Props {
@@ -40,6 +41,7 @@ interface Props {
   onManualSync: () => Promise<void>;
   onTestSync: () => Promise<void>;
   onResetCache: () => void;
+  syncDiagnostic?: string;
 }
 
 interface GroupedOrder {
@@ -67,7 +69,8 @@ const SellerDashboard: React.FC<Props> = ({
   setWaitlistConfig,
   onManualSync,
   onTestSync,
-  onResetCache
+  onResetCache,
+  syncDiagnostic
 }) => {
   const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'viz' | 'add' | 'settings'>('settings');
   const [selectedMnemonic, setSelectedMnemonic] = useState<string | null>(null);
@@ -93,12 +96,12 @@ const SellerDashboard: React.FC<Props> = ({
   const groupedOrders = useMemo(() => {
     const groups: Record<string, GroupedOrder> = {};
     
-    orders.forEach(o => {
-      // Robust key generation for grouping multiple line items with the same Order ID
-      const key = (o.orderId || o.id || 'UNKNOWN').toUpperCase();
+    (orders || []).forEach(o => {
+      // Grouping by Order ID; ensures multiple lines for same buyer appear as one group
+      const key = (String(o.orderId || o.id || 'N/A')).toUpperCase();
       if (!groups[key]) {
         groups[key] = {
-          orderId: o.orderId,
+          orderId: o.orderId || 'N/A',
           timestamp: o.timestamp,
           buyerName: o.buyerName,
           buyerEmail: o.buyerEmail,
@@ -187,7 +190,7 @@ const SellerDashboard: React.FC<Props> = ({
       setHasVerifiedOnce(true);
       setActiveTab('inventory');
     } catch (e) {
-      alert("Cloud Verification failed. Please ensure your Apps Script is deployed as a Web App for 'Anyone'.");
+      alert("Verification failed. Check your script URL.");
     } finally {
       setIsTesting(false);
     }
@@ -324,6 +327,14 @@ const SellerDashboard: React.FC<Props> = ({
 
         {activeTab === 'orders' && (
           <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-300">
+            {/* diagnostic message if exists */}
+            {syncDiagnostic && (
+              <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-2xl flex items-center gap-3">
+                <InformationCircleIcon className="w-5 h-5 text-indigo-500" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">{syncDiagnostic}</p>
+              </div>
+            )}
+
             {/* Clickable Summary Metric Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                <button 
@@ -392,7 +403,7 @@ const SellerDashboard: React.FC<Props> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredOrders.length === 0 ? (
-                      <tr><td colSpan={8} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Accessing Google Sheets...' : 'No orders found.'}</td></tr>
+                      <tr><td colSpan={8} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">{isSyncing ? 'Accessing Google Sheets...' : 'No orders found in the "Orders" sheet.'}</td></tr>
                     ) : (
                       filteredOrders.map((group) => {
                         const isExpanded = expandedOrderIds.has(group.orderId);
@@ -538,6 +549,12 @@ const SellerDashboard: React.FC<Props> = ({
                     <input type="text" placeholder="https://script.google.com/macros/s/.../exec" value={webhookUrl} onChange={(e) => { onWebhookChange(e.target.value); setHasVerifiedOnce(false); }} className="flex-1 bg-slate-800/50 border border-slate-700/50 rounded-2xl p-5 text-sm text-indigo-100 placeholder-slate-600 outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium backdrop-blur-sm" />
                     <button onClick={handleTestConnection} disabled={isTesting || !webhookUrl} className={`p-5 rounded-2xl transition-all min-w-[140px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest ${isTesting ? 'bg-slate-700 text-slate-400' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-900/40'}`}>{isTesting ? <WifiIcon className="w-5 h-5 animate-ping" /> : <><WifiIcon className="w-5 h-5" /> Verify Hub</>}</button>
                   </div>
+                  {syncDiagnostic && (
+                    <div className="mt-4 p-4 bg-slate-800/50 border border-slate-700/50 rounded-xl">
+                       <p className="text-[9px] font-black uppercase text-indigo-400 tracking-widest mb-1">Last Diagnostic</p>
+                       <p className="text-[10px] text-slate-300 font-bold">{syncDiagnostic}</p>
+                    </div>
+                  )}
                   <p className="text-[9px] text-slate-500 mt-4 uppercase font-bold tracking-widest leading-relaxed">Note: Verifying Hub will clear local browser cache and memory to ensure fresh synchronization with your cloud data.</p>
                 </div>
               </div>
