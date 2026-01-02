@@ -24,7 +24,8 @@ import {
   ShieldCheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  CurrencyDollarIcon
+  CurrencyDollarIcon,
+  ExclamationCircleIcon
 } from '@heroicons/react/24/outline';
 
 interface Props {
@@ -51,6 +52,7 @@ interface GroupedOrder {
   distinctItems: number;
   totalCost: number;
   overallStatus: 'confirmed' | 'waitlisted' | 'mixed';
+  hasWaitlistedLine: boolean;
 }
 
 const SellerDashboard: React.FC<Props> = ({ 
@@ -73,6 +75,13 @@ const SellerDashboard: React.FC<Props> = ({
   const [hasVerifiedOnce, setHasVerifiedOnce] = useState(!!webhookUrl);
   const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
 
+  // Auto-refresh data when Orders or Inventory tab is clicked
+  useEffect(() => {
+    if ((activeTab === 'orders' || activeTab === 'inventory') && hasVerifiedOnce) {
+      handleManualSync();
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     if (!webhookUrl) {
       setActiveTab('settings');
@@ -83,6 +92,7 @@ const SellerDashboard: React.FC<Props> = ({
   const isLocked = !webhookUrl || !hasVerifiedOnce;
 
   const itemPriceMap = useMemo(() => new Map(items.map(i => [i.id, i.price])), [items]);
+  const itemStockMap = useMemo(() => new Map(items.map(i => [i.mnemonic, i.quantity])), [items]);
 
   const groupedOrders = useMemo(() => {
     const groups: Record<string, GroupedOrder> = {};
@@ -99,7 +109,8 @@ const SellerDashboard: React.FC<Props> = ({
           totalQty: 0,
           distinctItems: 0,
           totalCost: 0,
-          overallStatus: 'confirmed'
+          overallStatus: 'confirmed',
+          hasWaitlistedLine: false
         };
       }
       
@@ -108,6 +119,7 @@ const SellerDashboard: React.FC<Props> = ({
       g.totalQty += o.quantity;
       const price = itemPriceMap.get(o.itemId) || 0;
       g.totalCost += price * o.quantity;
+      if (o.status === 'waitlisted') g.hasWaitlistedLine = true;
     });
 
     return Object.values(groups).map(g => {
@@ -177,8 +189,13 @@ const SellerDashboard: React.FC<Props> = ({
 
   const handleManualSync = async () => {
     setIsSyncing(true);
-    await onManualSync();
-    setIsSyncing(false);
+    try {
+      await onManualSync();
+    } catch (e) {
+      console.error("Sync error", e);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleTestConnection = async () => {
@@ -186,10 +203,9 @@ const SellerDashboard: React.FC<Props> = ({
     try {
       await onTestSync();
       setHasVerifiedOnce(true);
-      alert("Connection verified!");
       setActiveTab('inventory');
     } catch (e) {
-      alert("Verification failed.");
+      alert("Verification failed. Check your Webhook URL.");
     } finally {
       setIsTesting(false);
     }
@@ -289,11 +305,14 @@ const SellerDashboard: React.FC<Props> = ({
           <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-300">
             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
               <div className="flex flex-col">
-                <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Selling Database</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Drag rows to prioritize sales order</p>
+                <div className="flex items-center gap-2">
+                   <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Selling Database</h3>
+                   {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
+                </div>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Live items tracked from Google Sheet</p>
               </div>
               <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100 active:scale-95'}`}>
-                <ArrowUpTrayIcon className={`w-4 h-4 ${isSyncing ? 'animate-bounce' : ''}`} /> {isSyncing ? 'Syncing...' : 'Force Sync'}
+                <ArrowUpTrayIcon className={`w-4 h-4 ${isSyncing ? 'animate-bounce' : ''}`} /> {isSyncing ? 'Refreshing...' : 'Manual Refresh'}
               </button>
             </div>
             <div className="overflow-x-auto">
@@ -335,11 +354,14 @@ const SellerDashboard: React.FC<Props> = ({
           <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-300">
              <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/30 flex justify-between items-center">
               <div>
-                <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Consolidated Order Log</h3>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Click Order ID to view individual items</p>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Live Transactions</h3>
+                  {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
+                </div>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Read directly from Sheet. Click row to see Stock Balance.</p>
               </div>
               <div className="flex gap-4">
-                <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-400 tracking-tighter"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> Total Unique: {uniqueOrderCount}</div>
+                <div className="flex items-center gap-1.5 text-[10px] font-black uppercase text-slate-400 tracking-tighter"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> Unique Sessions: {uniqueOrderCount}</div>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -351,14 +373,17 @@ const SellerDashboard: React.FC<Props> = ({
                     <th className="px-6 py-4">Time (SGT)</th>
                     <th className="px-6 py-4">Buyer</th>
                     <th className="px-6 py-4 text-center">Items</th>
-                    <th className="px-6 py-4 text-center">Qty</th>
+                    <th className="px-6 py-4 text-center">Total Qty</th>
                     <th className="px-6 py-4 text-right">Total Cost</th>
+                    <th className="px-6 py-4 text-center">Stock Check</th>
                     <th className="px-6 py-4 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {groupedOrders.length === 0 ? (
-                    <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">No transactions found.</td></tr>
+                    <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-400 font-bold uppercase text-[10px] tracking-widest">
+                      {isSyncing ? 'Refreshing from Cloud...' : 'No orders in current batch.'}
+                    </td></tr>
                   ) : (
                     groupedOrders.map((group) => {
                       const isExpanded = expandedOrderIds.has(group.orderId);
@@ -375,6 +400,19 @@ const SellerDashboard: React.FC<Props> = ({
                             <td className="px-6 py-6 text-center font-black text-slate-900">{group.totalQty}</td>
                             <td className="px-6 py-6 text-right font-black text-emerald-600 tracking-tight">${group.totalCost.toFixed(2)}</td>
                             <td className="px-6 py-6 text-center">
+                               {group.hasWaitlistedLine ? (
+                                 <div className="flex justify-center items-center gap-1 text-amber-500 animate-pulse">
+                                   <ExclamationCircleIcon className="w-4 h-4" />
+                                   <span className="text-[8px] font-black uppercase">Waitlist Triggered</span>
+                                 </div>
+                               ) : (
+                                 <div className="flex justify-center items-center gap-1 text-emerald-500">
+                                   <ShieldCheckIcon className="w-4 h-4" />
+                                   <span className="text-[8px] font-black uppercase">Stock Clear</span>
+                                 </div>
+                               )}
+                            </td>
+                            <td className="px-6 py-6 text-center">
                               <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase border ${
                                 group.overallStatus === 'confirmed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
                                 group.overallStatus === 'mixed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
@@ -386,7 +424,7 @@ const SellerDashboard: React.FC<Props> = ({
                           </tr>
                           {isExpanded && (
                             <tr className="bg-slate-50/50">
-                              <td colSpan={8} className="px-12 py-6 border-b border-indigo-100/50">
+                              <td colSpan={9} className="px-12 py-6 border-b border-indigo-100/50">
                                 <div className="space-y-4">
                                   <div className="flex gap-12 text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-200 pb-2">
                                     <div className="flex items-center gap-2"><UserGroupIcon className="w-3.5 h-3.5" /> {group.buyerEmail}</div>
@@ -397,7 +435,8 @@ const SellerDashboard: React.FC<Props> = ({
                                       <tr>
                                         <th className="text-left py-2">Mnemonic</th>
                                         <th className="text-left py-2">Item Name</th>
-                                        <th className="text-center py-2">Qty</th>
+                                        <th className="text-center py-2">Order Qty</th>
+                                        <th className="text-center py-2">Sheet Balance</th>
                                         <th className="text-right py-2">Unit Price</th>
                                         <th className="text-right py-2">Subtotal</th>
                                         <th className="text-center py-2">Line Status</th>
@@ -406,11 +445,17 @@ const SellerDashboard: React.FC<Props> = ({
                                     <tbody className="divide-y divide-slate-100/50">
                                       {group.lines.map((line, idx) => {
                                         const price = itemPriceMap.get(line.itemId) || 0;
+                                        const balance = itemStockMap.get(line.mnemonic) ?? '??';
                                         return (
                                           <tr key={idx} className="text-slate-600">
                                             <td className="py-3 font-mono font-bold text-indigo-500">{line.mnemonic}</td>
                                             <td className="py-3 font-medium">{line.itemName}</td>
                                             <td className="py-3 text-center font-black">{line.quantity}</td>
+                                            <td className="py-3 text-center">
+                                               <span className={`px-2 py-0.5 rounded font-black ${typeof balance === 'number' && balance <= 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
+                                                 {balance} units
+                                               </span>
+                                            </td>
                                             <td className="py-3 text-right text-slate-400">${price.toFixed(2)}</td>
                                             <td className="py-3 text-right font-bold text-slate-800">${(price * line.quantity).toFixed(2)}</td>
                                             <td className="py-3 text-center">
