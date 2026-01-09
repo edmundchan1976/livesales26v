@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Item, Order, WaitlistConfig } from '../types';
 import InventoryInput from './InventoryInput';
@@ -227,6 +228,7 @@ const SellerDashboard: React.FC<Props> = ({
               <h4 className="text-3xl font-black text-slate-900 leading-none">Scan to Order</h4>
             </div>
             <div className="bg-white p-6 rounded-[2.5rem] border-[16px] border-slate-50 shadow-inner mb-10 ring-1 ring-slate-100">
+              {/* Fixed duplicate size attribute */}
               <QRCodeSVG value={getOrderUrl(selectedMnemonic)} size={300} level="H" includeMargin={true} />
             </div>
             <div className="bg-indigo-50/50 px-6 py-5 rounded-2xl border border-indigo-100/50 flex justify-between items-center w-full">
@@ -269,9 +271,9 @@ const SellerDashboard: React.FC<Props> = ({
                    {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
                 </div>
                 {lastSyncTimestamp ? (
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    <p className="text-[10px] text-emerald-700 font-black uppercase tracking-tight">Sync Verified: {lastSyncTimestamp}</p>
+                  <div className="flex items-center gap-2 mt-2 bg-emerald-600 text-white px-3 py-1.5 rounded-xl border-b-4 border-emerald-800 animate-in slide-in-from-left-2 duration-300">
+                    <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                    <p className="text-[10px] font-black uppercase tracking-widest">Cloud Hub Updated: {lastSyncTimestamp}</p>
                   </div>
                 ) : (
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Manage Items, Stock Balance & Active Upsells</p>
@@ -279,7 +281,7 @@ const SellerDashboard: React.FC<Props> = ({
               </div>
               <div className="flex gap-3">
                  <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
-                    <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Force Cloud Sync
+                    <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Cloud Data
                  </button>
               </div>
             </div>

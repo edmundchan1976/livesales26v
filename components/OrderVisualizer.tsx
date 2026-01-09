@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Item, Order } from '../types';
 import { 
@@ -18,12 +17,12 @@ interface Props {
 }
 
 const OrderVisualizer: React.FC<Props> = ({ items, orders }) => {
-  // Map items to their sequence order and calculate total quantities ordered
+  // Use mnemonics for reliable cross-joining between Orders and Items
   const sortedItems = [...items].sort((a, b) => a.order - b.order);
   
   const data = sortedItems.map(item => {
     const totalOrdered = orders
-      .filter(o => o.itemId === item.id)
+      .filter(o => o.mnemonic.toUpperCase() === item.mnemonic.toUpperCase())
       .reduce((acc, curr) => acc + curr.quantity, 0);
     
     return {
@@ -48,34 +47,35 @@ const OrderVisualizer: React.FC<Props> = ({ items, orders }) => {
           <XAxis 
             dataKey="mnemonic" 
             label={{ value: 'Item Mnemonic (by Selling Sequence)', position: 'bottom', offset: 40 }}
-            tick={{ fontSize: 12, fill: '#64748b' }}
+            tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 700 }}
           />
           <YAxis 
              tick={{ fontSize: 12, fill: '#64748b' }}
-             label={{ value: 'Total Qty Ordered', angle: -90, position: 'insideLeft', style: { fill: '#64748b' } }}
+             label={{ value: 'Total Qty Ordered', angle: -90, position: 'insideLeft', style: { fill: '#64748b', fontWeight: 900, textTransform: 'uppercase', fontSize: '10px' } }}
           />
           <Tooltip 
             cursor={{ fill: '#f8fafc' }}
-            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+            contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '12px' }}
+            itemStyle={{ fontWeight: 900, fontSize: '12px' }}
           />
-          <Bar dataKey="ordered" radius={[4, 4, 0, 0]}>
+          <Bar dataKey="ordered" radius={[8, 8, 0, 0]} animationDuration={1000}>
             {data.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-slate-50 p-4 rounded-xl">
-          <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Most Popular</p>
-          <p className="text-lg font-bold text-slate-800">
+      <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-100/50">
+          <p className="text-[10px] uppercase font-black tracking-widest text-indigo-400 mb-2">High Demand Leader</p>
+          <p className="text-2xl font-black text-slate-800">
             {data.length > 0 ? [...data].sort((a,b) => b.ordered - a.ordered)[0].mnemonic : 'N/A'}
           </p>
         </div>
-        <div className="bg-slate-50 p-4 rounded-xl">
-          <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Total Demand</p>
-          <p className="text-lg font-bold text-slate-800">
-            {orders.reduce((acc, o) => acc + o.quantity, 0)} units
+        <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200/50">
+          <p className="text-[10px] uppercase font-black tracking-widest text-slate-400 mb-2">Total Combined Demand</p>
+          <p className="text-2xl font-black text-slate-800">
+            {orders.reduce((acc, o) => acc + o.quantity, 0)} <span className="text-sm text-slate-400 font-bold ml-1 uppercase">units</span>
           </p>
         </div>
       </div>
