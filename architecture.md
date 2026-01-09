@@ -1,7 +1,7 @@
 # 🏗 Technical Architecture
 
-## Google Sheets Apps Script (Hub Engine v2.4)
-Copy and paste this entire code into your Google Apps Script editor. This version ensures the "Selling Database" stays populated even with zero orders.
+## Google Sheets Apps Script (Hub Engine v2.5)
+Replace your entire Apps Script with this version. It ensures that every sync updates the "Last Sync" timestamp in cell J1 and that Analytics data matches correctly.
 
 ### Deployment Instructions
 1. **Deployment**: Click `Deploy` > `New Deployment`.
@@ -12,7 +12,7 @@ Copy and paste this entire code into your Google Apps Script editor. This versio
 
 ```javascript
 /**
- * Hub Engine v2.4 - Mnemonic Inventory & Order Hub
+ * Hub Engine v2.5 - Mnemonic Inventory & Order Hub
  */
 
 function getSGTNow() {
@@ -21,7 +21,6 @@ function getSGTNow() {
 
 /**
  * GET: Fetches data for the dashboard.
- * Resiliently pulls from Inventory or falls back to Master_Inventory.
  */
 function doGet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -34,7 +33,6 @@ function doGet() {
   let lastSyncTS = "Never";
 
   try {
-    // 1. Determine which sheet has the inventory data
     let targetSheet = inventorySheet;
     if (!inventorySheet || inventorySheet.getLastRow() < 2) {
       targetSheet = masterSheet;
@@ -71,9 +69,8 @@ function doGet() {
         };
       }).filter(it => it !== null);
       
-      // Get timestamp from J1
       const rawTS = targetSheet.getRange("J1").getValue();
-      lastSyncTS = rawTS ? String(rawTS).replace("LAST UPDATED: ", "") : "Active Now";
+      lastSyncTS = rawTS ? String(rawTS).replace("LAST UPDATED: ", "") : "Active";
     }
 
     if (orderSheet && orderSheet.getLastRow() >= 2) {
