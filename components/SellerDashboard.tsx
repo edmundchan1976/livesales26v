@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { Item, Order, WaitlistConfig } from '../types';
 import InventoryInput from './InventoryInput';
@@ -27,7 +26,8 @@ import {
   TagIcon,
   InformationCircleIcon,
   QuestionMarkCircleIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 
 interface Props {
@@ -43,6 +43,7 @@ interface Props {
   onTestSync: () => Promise<void>;
   onResetCache: () => void;
   syncDiagnostic?: string;
+  lastSyncTimestamp?: string | null;
 }
 
 interface GroupedOrder {
@@ -71,7 +72,8 @@ const SellerDashboard: React.FC<Props> = ({
   onManualSync,
   onTestSync,
   onResetCache,
-  syncDiagnostic
+  syncDiagnostic,
+  lastSyncTimestamp
 }) => {
   const [activeTab, setActiveTab] = useState<'inventory' | 'orders' | 'viz' | 'add' | 'settings'>('settings');
   const [selectedMnemonic, setSelectedMnemonic] = useState<string | null>(null);
@@ -92,7 +94,6 @@ const SellerDashboard: React.FC<Props> = ({
   const isLocked = !webhookUrl;
 
   const itemPriceMap = useMemo(() => new Map(items.map(i => [i.mnemonic.toUpperCase(), i.price])), [items]);
-  const itemStockMap = useMemo(() => new Map(items.map(i => [i.mnemonic.toUpperCase(), i.quantity])), [items]);
 
   const groupedOrders = useMemo(() => {
     const groups: Record<string, GroupedOrder> = {};
@@ -126,17 +127,7 @@ const SellerDashboard: React.FC<Props> = ({
       if (o.status === 'waitlisted') g.hasWaitlistedLine = true;
     });
 
-    return Object.values(groups).map(g => {
-      g.distinctItems = g.lines.length;
-      const hasConfirmed = g.lines.some(l => l.status === 'confirmed');
-      const hasWaitlisted = g.lines.some(l => l.status === 'waitlisted');
-      
-      if (hasConfirmed && hasWaitlisted) g.overallStatus = 'mixed';
-      else if (hasWaitlisted) g.overallStatus = 'waitlisted';
-      else g.overallStatus = 'confirmed';
-      
-      return g;
-    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return Object.values(groups).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [orders, itemPriceMap]);
 
   const filteredOrders = useMemo(() => {
@@ -159,10 +150,7 @@ const SellerDashboard: React.FC<Props> = ({
       if (isNaN(date.getTime())) return dateStr;
       return new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Singapore',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
       }).format(date);
     } catch (e) {
       return dateStr;
@@ -191,7 +179,7 @@ const SellerDashboard: React.FC<Props> = ({
     try {
       await onTestSync();
       setHasVerifiedOnce(true);
-      setActiveTab('orders');
+      setActiveTab('inventory');
     } catch (e) {
       console.error(e);
     } finally {
@@ -257,7 +245,7 @@ const SellerDashboard: React.FC<Props> = ({
         {[
           { id: 'settings', label: 'Settings', icon: Cog6ToothIcon, locked: false },
           { id: 'add', label: 'Add Inventory', icon: PlusCircleIcon, locked: isLocked },
-          { id: 'inventory', label: 'Database', icon: ListBulletIcon, locked: isLocked },
+          { id: 'inventory', label: 'Selling Database', icon: ListBulletIcon, locked: isLocked },
           { id: 'orders', label: 'Live Orders', icon: ArrowPathIcon, locked: isLocked },
           { id: 'viz', label: 'Analytics', icon: ChartBarIcon, locked: isLocked },
         ].map(tab => (
@@ -273,34 +261,44 @@ const SellerDashboard: React.FC<Props> = ({
 
       <div className="w-full">
         {activeTab === 'inventory' && (
-          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-300">
             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                    <h3 className="font-black text-slate-900 uppercase tracking-widest text-xs">Selling Database</h3>
                    {isSyncing && <ArrowPathIcon className="w-3.5 h-3.5 text-indigo-400 animate-spin" />}
                 </div>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Cloud-synced Inventory Sheet</p>
+                {lastSyncTimestamp ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                    <p className="text-[10px] text-emerald-700 font-black uppercase tracking-tight">Sync Verified: {lastSyncTimestamp}</p>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mt-0.5">Manage Items, Stock Balance & Active Upsells</p>
+                )}
               </div>
-              <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
-                <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Refresh Cloud Data
-              </button>
+              <div className="flex gap-3">
+                 <button onClick={handleManualSync} disabled={isSyncing} className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all ${isSyncing ? 'bg-slate-200 text-slate-500' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-100'}`}>
+                    <ArrowPathIcon className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> Force Cloud Sync
+                 </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="text-[10px] uppercase bg-slate-50/50 text-slate-400 font-black tracking-widest">
+                <thead className="text-[10px] uppercase bg-slate-50/50 text-slate-400 font-black tracking-widest border-b border-slate-100">
                   <tr>
-                    <th className="px-4 py-4 w-10 text-center">#</th>
+                    <th className="px-6 py-4 w-10 text-center">#</th>
                     <th className="px-6 py-4">Mnemonic</th>
                     <th className="px-6 py-4">Item Name</th>
+                    <th className="px-6 py-4">Price</th>
                     <th className="px-6 py-4 text-center">Stock Balance</th>
                     <th className="px-6 py-4 text-center">Offer After?</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody className="divide-y divide-slate-100">
                   {items.length === 0 ? (
-                    <tr><td colSpan={6} className="px-6 py-12 text-center text-slate-300 font-black uppercase text-[10px]">Database Empty. Syncing required.</td></tr>
+                    <tr><td colSpan={7} className="px-6 py-24 text-center text-slate-300 font-black uppercase text-[10px] tracking-widest">Database Empty. Please sync Cloud URL or add items manually.</td></tr>
                   ) : [...items].sort((a,b) => a.order - b.order).map((item, idx) => (
                     <tr key={item.id} 
                       draggable 
@@ -308,16 +306,33 @@ const SellerDashboard: React.FC<Props> = ({
                       onDragOver={(e) => handleDragOver(e, idx)} 
                       onDrop={() => handleDrop(idx)} 
                       className={`hover:bg-slate-50/50 group transition-colors ${draggedIndex === idx ? 'opacity-30 bg-indigo-50 shadow-inner' : ''}`}>
-                      <td className="px-4 py-5"><Bars3Icon className="w-5 h-5 cursor-grab text-slate-200 group-hover:text-indigo-400" /></td>
-                      <td className="px-6 py-5"><button onClick={() => setSelectedMnemonic(item.mnemonic)} className="text-indigo-600 font-black bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 font-mono text-xs">{item.mnemonic}</button></td>
-                      <td className="px-6 py-5 font-bold text-slate-800">{item.name}</td>
-                      <td className="px-6 py-5 text-center"><span className={`px-4 py-2 rounded-xl text-[10px] font-black border uppercase ${item.quantity > 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'}`}>{item.quantity} units</span></td>
+                      <td className="px-6 py-5"><Bars3Icon className="w-5 h-5 cursor-grab text-slate-200 group-hover:text-indigo-400" /></td>
+                      <td className="px-6 py-5">
+                        <button onClick={() => setSelectedMnemonic(item.mnemonic)} className="text-indigo-600 font-black bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 font-mono text-[11px] tracking-wider">
+                          {item.mnemonic}
+                        </button>
+                      </td>
+                      <td className="px-6 py-5">
+                        <div>
+                          <p className="font-black text-slate-900 text-sm leading-tight">{item.name}</p>
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{item.category}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 font-black text-slate-700">${(item.price || 0).toFixed(2)}</td>
                       <td className="px-6 py-5 text-center">
-                         <input type="checkbox" checked={!!item.allowUpsell} onChange={() => toggleUpsell(item.id)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                        <span className={`px-4 py-2 rounded-xl text-[10px] font-black border uppercase tracking-wider ${item.quantity > 5 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : item.quantity > 0 ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-rose-50 text-rose-700 border-rose-100'}`}>
+                          {item.quantity} {item.quantity === 1 ? 'unit' : 'units'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-center">
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" checked={!!item.allowUpsell} onChange={() => toggleUpsell(item.id)} className="sr-only peer" />
+                          <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                        </label>
                       </td>
                       <td className="px-6 py-5 text-right flex justify-end gap-2">
-                        <button onClick={() => setSelectedMnemonic(item.mnemonic)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"><QrCodeIcon className="w-5 h-5" /></button>
-                        <button onClick={() => deleteItem(item.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"><TrashIcon className="w-5 h-5" /></button>
+                        <button onClick={() => setSelectedMnemonic(item.mnemonic)} className="p-2.5 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors shadow-sm bg-white border border-slate-100"><QrCodeIcon className="w-5 h-5" /></button>
+                        <button onClick={() => deleteItem(item.id)} className="p-2.5 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors shadow-sm bg-white border border-slate-100"><TrashIcon className="w-5 h-5" /></button>
                       </td>
                     </tr>
                   ))}
